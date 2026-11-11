@@ -1,5 +1,5 @@
 import { normalize, suggestField, FIELD_NAMES, addressKey, addressCoordinates, buildAddressIndex, detectAddressMapping, importWorkbook,
-  matchAddress, perimeterArea, pointInPerimeter, classifyAddress, exportRows } from '../src/analysis-core.js';
+  matchAddress, perimeterArea, pointInPerimeter, classifyAddress, exportRows, createPerimeterBuffer } from '../src/analysis-core.js';
 
 const messages = [];
 let passed = 0, failed = 0;
@@ -152,6 +152,81 @@ test('Innen/Aussen/Ungeklärt ohne Turf klassifizieren', () => {
   equal(classifyAddress({ row: ['Kunstgasse', 1, 4000] }, columns, index, area).status, 'inside');
   equal(classifyAddress({ row: ['Kunstgasse', 2, 4000] }, columns, index, area).status, 'outside');
   equal(classifyAddress({ row: ['Kunstgasse', 3, 4000] }, columns, index, area).status, 'unresolved');
+});
+
+// WGS84 metres/degree at the equator; independent reference coordinates.
+const metricPoint = (x, y) => [x / 111319.49079327357, y / 110574.27582159435];
+const metricSquare = (left, bottom, right, top) => [metricPoint(left, bottom), metricPoint(right, bottom), metricPoint(right, top), metricPoint(left, top)];
+
+test('0 Meter behält die ursprüngliche Fläche unverändert', () => {
+  const area = perimeterArea(collection({ type: 'Polygon', coordinates: [metricSquare(-100, -100, 100, 100)] })).area;
+  const before = JSON.stringify(area), buffer = createPerimeterBuffer(area, 0);
+  assert(buffer.area === area);
+  assert(buffer.contains(metricPoint(0, 0)));
+  assert(!buffer.contains(metricPoint(101, 0)));
+  equal(JSON.stringify(area), before);
+});
+
+test('Metererweiterung gilt für Kanten und runde Ecken, nicht für ein Rechteck', () => {
+  const area = perimeterArea(collection({ type: 'Polygon', coordinates: [metricSquare(-100, -100, 100, 100)] })).area;
+  const buffer = createPerimeterBuffer(area, 100);
+  assert(buffer.contains(metricPoint(200, 0)), '100 m ausserhalb eingeschlossen');
+  assert(!buffer.contains(metricPoint(201, 0)), '101 m ausserhalb ausgeschlossen');
+  assert(buffer.contains(metricPoint(170, 170)), 'Runde Ecke innerhalb 100 m');
+  assert(!buffer.contains(metricPoint(180, 180)), 'Diagonale über 100 m ausgeschlossen');
+  const display = perimeterArea(buffer.area).area;
+  for (const point of [metricPoint(0, 0), metricPoint(199, 0), metricPoint(170, 170), metricPoint(201, 0), metricPoint(180, 180)]) {
+    equal(pointInPerimeter(point, display), buffer.contains(point));
+  }
+});
+
+test('250 Meter als Obergrenze; Werte ausserhalb des Reglers ablehnen', () => {
+  const area = perimeterArea(collection({ type: 'Polygon', coordinates: [metricSquare(-100, -100, 100, 100)] })).area;
+  const buffer = createPerimeterBuffer(area, 250);
+  assert(buffer.contains(metricPoint(350, 0)));
+  assert(!buffer.contains(metricPoint(350.1, 0)));
+  for (const invalid of [-1, 251, NaN, Infinity]) rejects(() => createPerimeterBuffer(area, invalid), /0 und 250/);
+});
+
+test('Polygonlöcher werden bei Erweiterung kleiner und können verschwinden', () => {
+  const area = perimeterArea(collection({ type: 'Polygon', coordinates: [metricSquare(-500, -500, 500, 500), metricSquare(-100, -100, 100, 100)] })).area;
+  const small = createPerimeterBuffer(area, 50), large = createPerimeterBuffer(area, 150);
+  assert(!small.contains(metricPoint(0, 0)));
+  assert(small.contains(metricPoint(75, 0)));
+  assert(large.contains(metricPoint(0, 0)));
+  assert(pointInPerimeter(metricPoint(0, 0), perimeterArea(large.area).area));
+});
+
+test('Mehrere Perimeterteile dürfen durch die Erweiterung zusammenwachsen', () => {
+  const area = perimeterArea(collection({ type: 'MultiPolygon', coordinates: [
+    [metricSquare(-300, -100, -100, 100)], [metricSquare(100, -100, 300, 100)],
+  ] })).area;
+  assert(!createPerimeterBuffer(area, 99).contains(metricPoint(0, 0)));
+  assert(createPerimeterBuffer(area, 100).contains(metricPoint(0, 0)));
+});
+
+test('Konkave Aussparungen werden nur um den gewählten Meterabstand erweitert', () => {
+  const boundary = [[-100, -100], [100, -100], [100, 0], [0, 0], [0, 100], [-100, 100]].map(point => metricPoint(point[0], point[1]));
+  const area = perimeterArea(collection({ type: 'Polygon', coordinates: [boundary] })).area;
+  const buffer = createPerimeterBuffer(area, 40), display = perimeterArea(buffer.area).area;
+  assert(!pointInPerimeter(metricPoint(20, 20), area));
+  assert(buffer.contains(metricPoint(20, 20)));
+  assert(!buffer.contains(metricPoint(50, 50)));
+  assert(pointInPerimeter(metricPoint(20, 20), display));
+  assert(!pointInPerimeter(metricPoint(50, 50), display));
+});
+
+test('Erweiterung hängt weder von Ringrichtung noch von vorherigen Reglerwerten ab', () => {
+  const boundary = metricSquare(-100, -100, 100, 100);
+  const area = perimeterArea(collection({ type: 'Polygon', coordinates: [boundary] })).area;
+  const before = JSON.stringify(area), first = createPerimeterBuffer(area, 25);
+  createPerimeterBuffer(area, 250);
+  const repeated = createPerimeterBuffer(area, 25);
+  equal(first.area, repeated.area); equal(JSON.stringify(area), before);
+  const reverse = perimeterArea(collection({ type: 'Polygon', coordinates: [boundary.slice().reverse()] })).area;
+  const buffer = createPerimeterBuffer(reverse, 25);
+  assert(buffer.contains(metricPoint(124, 0)) && !buffer.contains(metricPoint(126, 0)));
+  assert(pointInPerimeter(metricPoint(124, 0), perimeterArea(buffer.area).area));
 });
 test('Export bewahrt Kommentar, Originalspalten, Duplikate und Reihenfolge', () => {
   const imported = { header: ['Strasse', 'Nummer', 'PLZ', 'Kommentar', 'Zusatz', 'Zusatz'] };

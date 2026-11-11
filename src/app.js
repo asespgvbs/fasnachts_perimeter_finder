@@ -1,6 +1,6 @@
 import { prepareGeoJSON, parsePerimeterCSV } from './core.js';
 import { setupBuildingAnalysis } from './analysis.js';
-import { perimeterArea } from './analysis-core.js';
+import { perimeterArea, createPerimeterBuffer } from './analysis-core.js';
 
 const MAX_BYTES = 20 * 1024 * 1024;
 
@@ -10,10 +10,13 @@ export function startViewer(L, environment = globalThis) {
   const tileStatus = document.getElementById('tile-status');
   const fileButton = document.getElementById('file-button');
   const input = document.getElementById('file-input');
+  const offset = document.getElementById('perimeter-offset');
+  const offsetValue = document.getElementById('perimeter-offset-value');
   const map = L.map('map', { crs: L.CRS.EPSG3857, preferCanvas: true, maxZoom: 19 })
     .setView([47.5596, 7.62], 13);
   const layerControl = L.control.layers({}, {}, { position: 'topright' }).addTo(map);
   let currentLayer = null;
+  let source = null, offsetTimer = null, geometryVersion = 0;
   const analysis = setupBuildingAnalysis(L, map, layerControl, environment);
 
   function basemap(style) {
@@ -40,25 +43,31 @@ export function startViewer(L, environment = globalThis) {
   gray.addTo(map);
   L.control.scale({ imperial: false }).addTo(map);
 
-  async function showGeometry(result, name) {
+  async function showGeometry(result, name, fitView = true) {
+    const version = ++geometryVersion;
     let candidate;
     try {
       const perimeter = perimeterArea(result.geojson);
-      candidate = L.geoJSON(perimeter.area, {
-        style: { color: '#196b8a', weight: 3, fillColor: '#4f9dba', fillOpacity: 0.22 },
+      const buffer = createPerimeterBuffer(perimeter.area, Number(offset.value));
+      candidate = L.geoJSON(buffer.area, {
+        // A single nonzero path paints the union once, including overlapping caps.
+        style: { color: '#196b8a', weight: 3, stroke: buffer.meters === 0,
+          fillColor: '#4f9dba', fillOpacity: 0.28, fillRule: buffer.meters ? 'nonzero' : 'evenodd' },
       });
       const bounds = candidate.getBounds();
       if (!bounds.isValid()) throw new Error('Es konnten keine darstellbaren Geometrien gefunden werden.');
       candidate.addTo(map);
-      map.fitBounds(bounds, { padding: [24, 24], maxZoom: 19 });
+      if (fitView) map.fitBounds(bounds, { padding: [24, 24], maxZoom: 19 });
       if (currentLayer) {
         map.removeLayer(currentLayer);
         layerControl.removeLayer(currentLayer);
       }
       currentLayer = candidate;
+      source = { result, name };
+      offset.disabled = false;
       layerControl.addOverlay(currentLayer, 'Perimeter');
-      await analysis.setPerimeter(perimeter.area);
-      status.textContent = `${name} · ${result.positionCount.toLocaleString('de-CH')} Positionen · Perimeterfläche${perimeter.closedRings ? ' · letzter Punkt mit erstem verbunden' : ''}${result.emptyCount ? ` · ${result.emptyCount} leere Geometrien ausgelassen` : ''}`;
+      await analysis.setPerimeter(perimeter.area, buffer, fitView);
+      if (version === geometryVersion) status.textContent = `${name} · ${result.positionCount.toLocaleString('de-CH')} Positionen · Perimeterfläche · Erweiterung ${buffer.meters} m${perimeter.closedRings ? ' · letzter Punkt mit erstem verbunden' : ''}${result.emptyCount ? ` · ${result.emptyCount} leere Geometrien ausgelassen` : ''}`;
     } catch (error) {
       if (candidate && candidate !== currentLayer) map.removeLayer(candidate);
       throw error;
@@ -93,6 +102,20 @@ export function startViewer(L, environment = globalThis) {
   }
 
   fileButton.addEventListener('click', () => input.click());
+  function adjustPerimeter() {
+    clearTimeout(offsetTimer);
+    if (!source) return Promise.resolve();
+    return load(() => showGeometry(source.result, source.name, false));
+  }
+  offset.addEventListener('input', () => {
+    offsetValue.textContent = `${offset.value} m`;
+    clearTimeout(offsetTimer);
+    offsetTimer = setTimeout(adjustPerimeter, 120);
+  });
+  offset.addEventListener('change', () => {
+    offsetValue.textContent = `${offset.value} m`;
+    return adjustPerimeter();
+  });
   input.addEventListener('change', async () => {
     const file = input.files[0];
     input.value = '';
@@ -105,6 +128,7 @@ export function startViewer(L, environment = globalThis) {
   });
   new ResizeObserver(() => map.invalidateSize()).observe(document.getElementById('map'));
   fileButton.disabled = false;
+  offset.value = '0'; offset.disabled = true; offsetValue.textContent = '0 m';
   status.textContent = 'Kein Perimeter geladen. Bitte über «Perimeter laden» eine Datei auswählen.';
   return { analysis };
 }

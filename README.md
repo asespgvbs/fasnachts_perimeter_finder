@@ -26,6 +26,14 @@ Bei jedem Seitenstart ist der Perimeter leer. Er muss ausdrücklich per Knopf
 ausgewählt werden. Ein gewählter Perimeter bleibt bis zum nächsten Seitenstart
 oder zur Auswahl eines anderen Perimeters aktiv.
 
+Der Regler **«Perimeter nach aussen erweitern»** erweitert den gewählten
+Perimeter um **0 bis 250 Meter**, in Schritten von einem Meter. Er startet bei
+0 m und wird nach dem Laden eines Perimeters verfügbar. Kartenfläche, Dreiecke,
+Zähler und Excel-Export verwenden die eingestellte Erweiterung. Das Ziehen
+verändert den Kartenausschnitt nicht und lädt den GWR-Bestand nicht erneut.
+Alle Einstellungen beziehen sich auf die Originalgrenze; 0 m stellt diese wieder
+her. Bei Auswahl eines anderen Perimeters bleibt der eingestellte Meterwert aktiv.
+
 ## Perimeter und Gebäude
 
 - CSV benötigt `Longitude` und `Latitude`; Komma, Semikolon und Tabulator
@@ -38,6 +46,12 @@ oder zur Auswahl eines anderen Perimeters aktiv.
   ausgenommen. Randpunkte zählen als innerhalb. Die Innenprüfung verwendet
   lokal das Strahlschnittverfahren; bei sich kreuzenden Grenzen gilt die
   Gerade-/Ungerade-Regel. Es gibt keine zusätzliche Topologie-Bibliothek.
+- Die Metererweiterung verwendet eine lokale WGS84-Näherung für die Region Basel.
+  Kanten werden um den gewählten Abstand erweitert, Ecken abgerundet. Löcher
+  werden kleiner und können verschwinden; benachbarte Flächen können zusammenwachsen.
+  Die Punktprüfung nutzt den metrischen Abstand zu den Originalkanten. Die
+  gezeichneten Kreisrundungen weichen bei 250 m höchstens etwa 0,31 m von diesen
+  Rundungen ab; die Kartenanzeige ist daher eine feine Näherung der Erweiterung.
 - Maximal 20 MB pro Import und 5’000 Perimeterpositionen.
 - Excel: erste Zeile enthält die Überschriften. Übliche Varianten wie
   `Strassenname`, `Hausnummer` und `Plz` werden automatisch erkannt.
@@ -92,7 +106,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 python tests/run_loader_checks.py
 ```
 
-**60 JavaScript-Tests und acht Python-Tests bestehen.** Der optionale
+**68 JavaScript-Tests und acht Python-Tests bestehen.** Der optionale
 JavaScript-Läufer verwendet unter Windows die bereits vorhandene `Chakra.dll`.
 Er bündelt den tatsächlichen Anwendungsquellcode, ohne dessen Logik zu ersetzen.
 Nur Browser-, Datei-, Modul- und HTTP-Zugriffe sowie Timer sind synthetische Adapter;
@@ -101,6 +115,9 @@ fehlende Standardmethoden der älteren Testlaufzeit werden ergänzt.
 Geprüft werden unter anderem der komplette Ablauf vom Dateiknopf über eine offene
 190-Punkte-CSV bis zu GWR-Zuordnung, Dreiecken und Excel-Export, offene
 GeoJSON-Polygone, Innen-/Aussenpunkte, Randpunkte, Löcher und konkave Grenzen.
+Zusätzlich geprüft: 0/250-m-Grenzen, runde Ecken, schrumpfende Löcher,
+zusammenwachsende Teilflächen, Rückkehr zur Originalgrenze und Regleränderungen
+einschliesslich Gebäudezuordnung und Export ohne erneuten Adressdownload.
 Die gleichen Tests stehen unter **http://127.0.0.1:8000/tests/index.html** bereit.
 
 Es wurden keine echten Datendateien, Geheimnisse oder Live-Dienste abgefragt,
@@ -111,8 +128,7 @@ Live-Verfügbarkeit und Feldstruktur des GWR-Dienstes sind damit nicht bestätig
 
 ```powershell
 cd C:\dev\repos\fasnacht_perimeter_check
-git add -p -- README.md index.html serve.py src/app.js src/core.js tests/core.test.js tests/index.html tests/test_static.py
-git add -- src/analysis.js src/analysis-core.js src/bootstrap.js tests/analysis.test.js tests/building-flow.test.js tests/bootstrap.test.js tests/markers.test.js tests/run_loader_checks.py vendor/README.md vendor/leaflet/README.md
+git add -- README.md index.html styles.css src/app.js src/analysis.js src/analysis-core.js tests/analysis.test.js tests/building-flow.test.js
 git diff --cached
-git commit -m "Remove Turf dependency and close perimeters automatically"
+git commit -m "Add 0-250 metre outward perimeter adjustment"
 ```

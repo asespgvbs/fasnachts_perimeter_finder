@@ -221,10 +221,65 @@ export function pointInPerimeter(point, area) {
   });
 }
 
-export function classifyAddress(item, columns, index, area) {
+// A local WGS84 tangent-plane approximation in metres, centred on the perimeter.
+// The display is the union of the source polygons, edge strips and round caps.
+export function createPerimeterBuffer(area, meters = 0) {
+  if (!Number.isFinite(meters) || meters < 0 || meters > 250) throw new Error('Die Erweiterung muss zwischen 0 und 250 Metern liegen.');
+  if (meters === 0) return { area, meters, contains: point => pointInPerimeter(point, area) };
+  const points = area.features.flatMap(feature => feature.geometry.coordinates.flatMap(ring => ring));
+  let west = Infinity, east = -Infinity, south = Infinity, north = -Infinity;
+  for (const point of points) {
+    west = Math.min(west, point[0]); east = Math.max(east, point[0]);
+    south = Math.min(south, point[1]); north = Math.max(north, point[1]);
+  }
+  const lon = (west + east) / 2, lat = (south + north) / 2, radians = Math.PI / 180;
+  const w = Math.sqrt(1 - 0.00669437999014 * Math.sin(lat * radians) ** 2);
+  const sx = radians * 6378137 * Math.cos(lat * radians) / w;
+  const sy = radians * 6378137 * (1 - 0.00669437999014) / (w * w * w);
+  const project = point => [(point[0] - lon) * sx, (point[1] - lat) * sy];
+  const unproject = point => [lon + point[0] / sx, lat + point[1] / sy];
+  const polygons = [], edges = [];
+  function orient(ring, positive) {
+    let sum = 0;
+    for (let i = 1; i < ring.length; i++) sum += ring[i - 1][0] * ring[i][1] - ring[i][0] * ring[i - 1][1];
+    return (sum > 0) === positive ? ring : ring.slice().reverse();
+  }
+  function addPiece(ring) { polygons.push([orient(ring, true).map(unproject)]); }
+  for (const feature of area.features) {
+    const rings = feature.geometry.coordinates.map(ring => ring.map(project));
+    polygons.push(rings.map((ring, i) => orient(ring, i === 0).map(unproject)));
+    for (const ring of rings) for (let i = 1; i < ring.length; i++) {
+      const a = ring[i - 1], b = ring[i], dx = b[0] - a[0], dy = b[1] - a[1], length2 = dx * dx + dy * dy;
+      if (!length2) continue;
+      edges.push({ a, dx, dy, length2 });
+      const scale = meters / Math.sqrt(length2), nx = -dy * scale, ny = dx * scale;
+      const strip = [[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny]];
+      strip.push(strip[0]); addPiece(strip);
+      const circle = Array.from({ length: 64 }, (_, step) => {
+        const angle = step * Math.PI / 32;
+        return [a[0] + meters * Math.cos(angle), a[1] + meters * Math.sin(angle)];
+      });
+      circle.push(circle[0]); addPiece(circle);
+    }
+  }
+  return { meters, area: { type: 'FeatureCollection', features: [
+    { type: 'Feature', properties: {}, geometry: { type: 'MultiPolygon', coordinates: polygons } },
+  ] }, contains(point) {
+    if (pointInPerimeter(point, area)) return true;
+    const p = project(point), limit2 = (meters + 1e-7) ** 2;
+    return edges.some(edge => {
+      const t = Math.max(0, Math.min(1, ((p[0] - edge.a[0]) * edge.dx + (p[1] - edge.a[1]) * edge.dy) / edge.length2));
+      const x = p[0] - edge.a[0] - t * edge.dx, y = p[1] - edge.a[1] - t * edge.dy;
+      return x * x + y * y <= limit2;
+    });
+  } };
+}
+
+export function classifyAddress(item, columns, index, area, buffer = null) {
   const match = matchAddress(item.row, columns, index);
   if (match.reason) return Object.assign({}, item, { status: 'unresolved', reason: match.reason });
-  return Object.assign({}, item, { coordinates: match.coordinates, status: pointInPerimeter(match.coordinates, area) ? 'inside' : 'outside' });
+  const inside = buffer ? buffer.contains(match.coordinates) : pointInPerimeter(match.coordinates, area);
+  return Object.assign({}, item, { coordinates: match.coordinates, status: inside ? 'inside' : 'outside' });
 }
 
 export function exportRows(imported, results, filter) {

@@ -3,7 +3,7 @@ import { buildAddressIndex, detectAddressMapping, importWorkbook, perimeterArea,
 const ADDRESS_URL = 'https://data.bs.ch/api/explore/v2.1/catalog/datasets/100259/exports/json?limit=-1';
 const pause = () => new Promise(resolve => setTimeout(resolve, 0));
 
-export function renderBuildingMarkers({ L, map, insideLayer, outsideLayer, triangle, results, popup }) {
+export function renderBuildingMarkers({ L, map, insideLayer, outsideLayer, triangle, results, popup, fitView = true }) {
   const unique = new Map();
   for (const result of results) {
     if (result.status === 'unresolved') continue;
@@ -21,13 +21,13 @@ export function renderBuildingMarkers({ L, map, insideLayer, outsideLayer, trian
   insideLayer.addTo(map); outsideLayer.addTo(map);
   const bounds = insideLayer.getBounds(), outsideBounds = outsideLayer.getBounds();
   if (outsideBounds.isValid()) bounds.extend(outsideBounds);
-  if (bounds.isValid()) map.fitBounds(bounds, { padding: [24, 24], maxZoom: 17 });
+  if (fitView && bounds.isValid()) map.fitBounds(bounds, { padding: [24, 24], maxZoom: 17 });
   return unique.size;
 }
 
 export function setupBuildingAnalysis(L, map, controls, { document, fetch } = globalThis) {
   const $ = id => document.getElementById(id);
-  const state = { XLSX: null, source: null,
+  const state = { XLSX: null, source: null, buffer: null,
     imported: null, filename: '', index: null, addressPromise: null, results: null, version: 0, busy: false, evaluating: false };
   const insideLayer = L.featureGroup().addTo(map), outsideLayer = L.featureGroup().addTo(map);
   controls.addOverlay(insideLayer, 'Gebäude innerhalb · grüne Dreiecke');
@@ -55,10 +55,10 @@ export function setupBuildingAnalysis(L, map, controls, { document, fetch } = gl
     const c = state.imported.columns;
     return `${row[c.street] == null ? '' : row[c.street]} ${row[c.house] == null ? '' : row[c.house]}, ${row[c.zip] == null ? '' : row[c.zip]}`.trim();
   }
-  function renderResults() {
+  function renderResults(fitView) {
     for (const kind of ['inside', 'outside', 'unresolved']) $(kind + '-count').textContent = state.results.filter(result => result.status === kind).length.toLocaleString('de-CH');
     const unresolved = state.results.filter(result => result.status === 'unresolved');
-    renderBuildingMarkers({ L, map, insideLayer, outsideLayer, triangle, results: state.results, popup(result) {
+    renderBuildingMarkers({ L, map, insideLayer, outsideLayer, triangle, results: state.results, fitView, popup(result) {
       const popup = document.createElement('div'); popup.className = 'building-popup';
       const comment = state.imported.comment;
       popup.textContent = `${address(result.row)}\n${result.status === 'inside' ? 'Innerhalb' : 'Ausserhalb'} · ${result.count} Excel-Zeile(n)${comment >= 0 && result.row[comment] != null ? `\nKommentar: ${result.row[comment]}` : ''}`;
@@ -100,7 +100,7 @@ export function setupBuildingAnalysis(L, map, controls, { document, fetch } = gl
     try { return await state.addressPromise; }
     catch (error) { state.addressPromise = null; throw error; }
   }
-  async function evaluate() {
+  async function evaluate(fitView = true) {
     const version = ++state.version;
     state.evaluating = true; clearResults(); buttons();
     try {
@@ -113,11 +113,11 @@ export function setupBuildingAnalysis(L, map, controls, { document, fetch } = gl
       const results = [];
       for (let i = 0; i < imported.rows.length; i++) {
         if (version !== state.version) return;
-        results.push(classifyAddress(imported.rows[i], imported.columns, index, state.source));
+        results.push(classifyAddress(imported.rows[i], imported.columns, index, state.source, state.buffer));
         if (i % 300 === 0) { message(`Gebäude werden abgeglichen: ${i} / ${imported.rows.length} …`); await pause(); }
       }
       if (version !== state.version) return;
-      state.results = results; renderResults();
+      state.results = results; renderResults(fitView);
     } catch (error) {
       if (version === state.version) {
         clearResults();
@@ -158,9 +158,10 @@ export function setupBuildingAnalysis(L, map, controls, { document, fetch } = gl
   });
   buttons();
   return {
-    setPerimeter(geojson) {
+    setPerimeter(geojson, buffer = null, fitView = true) {
       state.source = perimeterArea(geojson).area;
-      return evaluate();
+      state.buffer = buffer;
+      return evaluate(fitView);
     },
     setLibraries(XLSX) {
       if (state.XLSX === XLSX) return;

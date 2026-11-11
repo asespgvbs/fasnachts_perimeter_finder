@@ -15,6 +15,9 @@ footer { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 9px 18px; font-
 [hidden] { display: none !important; }
 .summary-bar { padding: 9px 18px; background: #fff; border-bottom: 1px solid #dce3e5; font-size: 12px; max-height: 30vh; overflow: auto; }
 .counts { display: flex; flex-wrap: wrap; gap: 12px; }
+.perimeter-offset-control { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px; }
+.perimeter-offset-control input { flex: 1; min-width: 120px; max-width: 350px; accent-color: #196b8a; }
+.perimeter-offset-control output { min-width: 46px; font-variant-numeric: tabular-nums; }
 #analysis-status { margin: 0 0 8px; font-size: 13px; }
 #analysis-status:empty { display: none; }
 .inside { color: #167046; }.outside { color: #b52e25; }

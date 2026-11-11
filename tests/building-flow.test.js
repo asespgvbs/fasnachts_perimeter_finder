@@ -30,7 +30,7 @@ const perimeter = { type: 'FeatureCollection', features: [
 function environment({ records, responseOK = true, badWorkbook = false, useViewer = false } = {}) {
   const nodes = Object.fromEntries(['analysis-status', 'excel-button', 'export-button', 'excel-input',
     'inside-count', 'outside-count', 'unresolved-count', 'unresolved-list', 'unresolved-panel',
-    'file-button', 'file-input', 'status', 'tile-status', 'map'].map(id => [id, element()]));
+    'file-button', 'file-input', 'status', 'tile-status', 'map', 'perimeter-offset', 'perimeter-offset-value'].map(id => [id, element()]));
   const fakeDocument = { getElementById: id => nodes[id], createElement: element, createDocumentFragment: element };
   const values = [['Strasse', 'Nummer', 'Plz', 'Kommentar'], ['Kunstgasse', 1, 4000, 'synthetisch'], ['Kunstgasse', 2, 4000, 'synthetisch']];
   const workbook = { SheetNames: ['Tabelle1'], Sheets: { Tabelle1: { '!ref': 'A1:D3', values } } };
@@ -47,7 +47,7 @@ function environment({ records, responseOK = true, badWorkbook = false, useViewe
       { strname: 'Kunstgasse', deinr: 2, dplz4: 4000, geo_point_2d: { lon: 7.62, lat: 47.55 } },
     ] };
   };
-  const markers = [], drawn = [];
+  const markers = [], drawn = [], drawnStyles = [];
   const marker = (coordinates, options) => {
     const result = Object.assign(layer(), { marker: true, coordinates, options });
     markers.push(result); return result;
@@ -57,7 +57,7 @@ function environment({ records, responseOK = true, badWorkbook = false, useViewe
   const L = { featureGroup: layer, divIcon: options => options, circleMarker: marker, marker, CRS: { EPSG3857: {} },
     map: () => map, control: { layers: () => controls, scale: () => controls },
     tileLayer: () => Object.assign(layer(), { on() { return this; } }),
-    geoJSON(geometry) { drawn.push(geometry); return layer([Object.assign(layer(), { marker: true })]); } };
+    geoJSON(geometry, options) { drawn.push(geometry); drawnStyles.push(options.style); return layer([Object.assign(layer(), { marker: true })]); } };
   const dependencies = { document: fakeDocument, fetch, ResizeObserver: class { observe() {} } };
   const analysis = useViewer ? startViewer(L, dependencies).analysis : setupBuildingAnalysis(L, map, controls, dependencies);
   async function upload() {
@@ -68,7 +68,12 @@ function environment({ records, responseOK = true, badWorkbook = false, useViewe
     nodes['file-input'].files = [{ name, size: text.length, text: async () => text }];
     await nodes['file-input'].handlers.change();
   }
-  return { nodes, analysis, XLSX, upload, loadPerimeter, exported, markers, drawn, requests: () => requests, zooms: () => zooms };
+  async function setOffset(meters) {
+    nodes['perimeter-offset'].value = String(meters);
+    nodes['perimeter-offset'].handlers.input();
+    await nodes['perimeter-offset'].handlers.change();
+  }
+  return { nodes, analysis, XLSX, upload, loadPerimeter, setOffset, exported, markers, drawn, drawnStyles, requests: () => requests, zooms: () => zooms };
 }
 
 await test('Vollständiger Ablauf: Knopf, offene 190-Punkte-CSV, GWR-Abgleich, Dreiecke, Export', async () => {
@@ -100,6 +105,37 @@ await test('Offenes GeoJSON-Polygon schliessen und vorhandene Excel danach auswe
   const boundary = env.drawn[0].features[0].geometry.coordinates[0];
   assert(boundary.length === ring.length);
   assert(env.nodes['inside-count'].textContent === '1' && env.markers.length === 2);
+});
+
+await test('Regler aktualisiert Fläche, Gebäude und Export ohne erneuten GWR-Download oder Zoomsprung', async () => {
+  const env = environment({ useViewer: true, records: [
+    { strname: 'Kunstgasse', deinr: 1, dplz4: 4000, geo_point_2d: { lon: 7.6, lat: 47.55 } },
+    { strname: 'Kunstgasse', deinr: 2, dplz4: 4000, geo_point_2d: { lon: 7.6105, lat: 47.55 } },
+  ] });
+  assert(env.nodes['perimeter-offset'].disabled && env.nodes['perimeter-offset'].value === '0');
+  await env.analysis.setLibraries(env.XLSX);
+  await env.loadPerimeter('synthetisch.geojson', JSON.stringify(perimeter));
+  assert(!env.nodes['perimeter-offset'].disabled);
+  const original = JSON.stringify(env.drawn[0]);
+  await env.upload();
+  assert(env.nodes['inside-count'].textContent === '1' && env.nodes['outside-count'].textContent === '1');
+  const zooms = env.zooms();
+  await env.setOffset(50);
+  assert(env.nodes['perimeter-offset-value'].textContent === '50 m');
+  assert(env.nodes['inside-count'].textContent === '2' && env.nodes['outside-count'].textContent === '0');
+  assert(env.requests() === 1 && env.zooms() === zooms);
+  assert(env.drawnStyles[1].fillRule === 'nonzero' && env.drawnStyles[1].stroke === false);
+  assert(env.nodes.status.textContent.includes('Erweiterung 50 m'));
+  env.nodes['export-button'].handlers.click();
+  assert(env.exported[0].length === 3, 'Beide Zeilen aus dem erweiterten Perimeter exportieren');
+  const fifty = JSON.stringify(env.drawn[1]);
+  await env.setOffset(250);
+  await env.setOffset(50);
+  assert(JSON.stringify(env.drawn[3]) === fifty, 'Keine kumulierte Erweiterung');
+  await env.setOffset(0);
+  assert(JSON.stringify(env.drawn[4]) === original);
+  assert(env.nodes['inside-count'].textContent === '1' && env.nodes['outside-count'].textContent === '1');
+  assert(env.requests() === 1 && env.zooms() === zooms);
 });
 
 await test('Upload, GWR-Abgleich, Dreiecke und Export ohne GIS-Bibliothek', async () => {
