@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+.env.*
+*.xlsx
+*.xls
+*.csv
+# User-provided geographic data is not source code.
+*.geojson
+node_modules/
