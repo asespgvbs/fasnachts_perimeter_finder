@@ -1,142 +1,118 @@
 # Fasnachtsperimeter Basel
 
-Kleine Leaflet-Anwendung ohne Datenbank und ohne Anwendungsbackend. Excel und
-GeoJSON werden ausschliesslich im Browser verarbeitet. Der Perimeter wird vom
-Benutzer geliefert; es werden keine Grenzkoordinaten vorgegeben oder erfunden.
+1. **Perimeter laden:** CSV oder GeoJSON auswählen. Offene Punktfolgen werden
+   automatisch geschlossen: letzter Punkt wird mit dem ersten verbunden.
+2. **Gebäude importieren:** Excel mit **Strasse, Nummer, PLZ, Kommentar**
+   auswählen. Die App gleicht die Adressen mit dem amtlichen GWR-Adressbestand ab.
+3. **Perimeter-Gebäude exportieren:** Excel mit den Zeilen innerhalb des
+   Perimeters, einschliesslich aller ursprünglichen Spalten und Kommentare.
+
+Gefundene Gebäude erscheinen als **Dreiecke**: grün innerhalb, rot ausserhalb.
+Der Kartenausschnitt wird auf die Treffer gesetzt. Nicht zuordenbare Adressen
+stehen mit dem Grund in der Klärungsliste; sie bekommen keine erfundene Position.
 
 ## Start
-
-Python 3 wird für einen rein lokalen statischen Dateiserver verwendet. Keine
-Paketinstallation erforderlich:
 
 ```powershell
 cd C:\dev\repos\fasnacht_perimeter_check
 python serve.py
 ```
 
-Im Browser **http://127.0.0.1:8000** öffnen. Zum Beenden im Terminal `Strg+C`.
-Alternativer Port: `python serve.py --port 8080`.
-Die HTML-Datei nicht direkt per `file://` öffnen, da die JavaScript-Module HTTP
-benötigen. Der Server nimmt keine Uploads entgegen und stellt nur explizit
-freigegebene Quellcodedateien bereit, keine Verzeichnislisten oder Datendateien.
+**http://127.0.0.1:8000** öffnen. Beenden mit **Strg+C**.
+Nach Quellcodeänderungen den laufenden Server beenden, neu starten und im
+Browser **Strg+F5** drücken. Keine Paketinstallation nötig.
 
-## Bedienung
+Bei jedem Seitenstart ist der Perimeter leer. Er muss ausdrücklich per Knopf
+ausgewählt werden. Ein gewählter Perimeter bleibt bis zum nächsten Seitenstart
+oder zur Auswahl eines anderen Perimeters aktiv.
 
-1. **Perimeter laden:** eigenes GeoJSON auswählen. Unterstützt werden Polygon,
-   MultiPolygon, Feature und FeatureCollection mit ausschliesslich diesen
-   Flächen. Mehrere Flächen werden als Vereinigung betrachtet; Löcher bleiben
-   ausgenommen. Geschlossene Ringe und WGS84 / EPSG:4326 in der Reihenfolge
-   **[Längengrad, Breitengrad]** sind erforderlich. Schweizer Landeskoordinaten
-   im Perimeter vorher in einem GIS umprojizieren. Flächen ausserhalb der Region
-   Basel und sich kreuzende Kanten werden abgelehnt.
-2. **Offizielle Adressdaten laden:** der Browser lädt den JSON-Export von
-   [Datensatz 100259](https://data.bs.ch/explore/dataset/100259/).
-   Anschliessend die vorgeschlagenen Datenfelder für Strasse, Hausnummer, PLZ
-   und Koordinaten kontrollieren und bestätigen. Die genaue Feldstruktur und
-   die Live-Verfügbarkeit wurden bei der Entwicklung wegen des Netzwerkverbots
-   nicht abgefragt; deshalb ist die Feldzuordnung konfigurierbar.
-3. **Excel importieren:** `.xlsx` oder `.xls` öffnen, Tabellenblatt sowie die drei
-   Adressspalten wählen. Erste Zeile = Überschriften. Hausnummerzusätze müssen in
-   derselben Spalte wie die Nummer stehen, beispielsweise `12a`. PLZ: vierstellig.
-   Höchstens 20 MB, 50’000 Datenzeilen und 256 Spalten. Leere Zeilen werden
-   ignoriert. Die Reihenfolge der drei Importschritte ist beliebig.
-4. Grüne Kreise bedeuten innerhalb, rote Dreiecke ausserhalb. Rechts oben lässt
-   sich der **Perimeter** über die Layersteuerung aus- und einschalten. Auch die
-   beiden Punktgruppen lassen sich dort schalten. Ausschalten des Layers ändert
-   die räumliche Auswertung nicht. Klick auf einen Punkt zeigt die Adresse.
-5. **In-Perimeter-Liste:** erzeugt eine neue `.xlsx` mit allen zugehörigen
-   Originalzeilen, ursprünglichen Spaltennamen und ursprünglicher Spaltenfolge.
-   Mehrfach vorkommende Adressen und doppelte Spaltennamen bleiben erhalten.
-   Formatierungen, Makros, Formeln und andere Tabellenblätter werden nicht
-   übernommen; bei Formelzellen werden vorhandene gespeicherte Werte verwendet.
-6. **Nicht zugeordnet:** unbekannte, unvollständige und mehrdeutige Adressen sowie
-   Adressen ohne plausible Koordinaten erscheinen separat. Der Download der
-   Klärungsliste ergänzt die ursprünglichen Spalten um den Klärungsgrund.
+## Perimeter und Gebäude
 
-Die beiden Zähler zählen Excel-Zeilen, nicht eindeutige EGID-Gebäude. Die Zahl
-unterschiedlicher Adresspunkte steht zusätzlich in der Zusammenfassung. Am
-gleichen Punkt liegende Zeilen teilen sich einen Marker. Ein Adresspunkt auf
-einer Perimetergrenze zählt als innerhalb, auch auf einem Lochrand.
+- CSV benötigt `Longitude` und `Latitude`; Komma, Semikolon und Tabulator
+  werden erkannt. Die Zeilenreihenfolge bestimmt die Grenze.
+- GeoJSON benötigt WGS84, Koordinaten als **[Längengrad, Breitengrad]**.
+  Linien und Punktfolgen werden zu Polygonen; offene Polygonringe werden
+  ebenfalls geschlossen. Mindestens drei unterschiedliche, nicht auf einer
+  Geraden liegende Punkte sind erforderlich.
+- Mehrere Flächen werden als Vereinigung geprüft. Polygonlöcher bleiben
+  ausgenommen. Randpunkte zählen als innerhalb. Die Innenprüfung verwendet
+  lokal das Strahlschnittverfahren; bei sich kreuzenden Grenzen gilt die
+  Gerade-/Ungerade-Regel. Es gibt keine zusätzliche Topologie-Bibliothek.
+- Maximal 20 MB pro Import und 5’000 Perimeterpositionen.
+- Excel: erste Zeile enthält die Überschriften. Übliche Varianten wie
+  `Strassenname`, `Hausnummer` und `Plz` werden automatisch erkannt.
+  Hausnummerzusätze bleiben erhalten; PLZ ist vierstellig.
+  Maximal 50’000 Datenzeilen und 256 Spalten. Leerzeilen werden ignoriert.
+- Zähler und Export zählen Excel-Zeilen einschliesslich Duplikaten.
+  Derselbe Adresspunkt wird nur einmal markiert. Klick zeigt Adresse und Kommentar.
+- Beim Perimeterwechsel werden bereits importierte Gebäude neu ausgewertet.
+  Ein fehlerhafter Dateiimport behält den bisherigen Stand.
+- Der Export enthält nur die Innen-Zeilen in ursprünglicher Reihenfolge,
+  mit sämtlichen ursprünglichen Spalten. Formatierungen, Makros und weitere
+  Tabellenblätter werden nicht übernommen; Formeln werden als gespeicherte Werte
+  behandelt.
 
-## Adressabgleich und Koordinaten
+## Adressabgleich und Browserbibliotheken
 
-Der Browser lädt den vollständigen amtlichen Bestand über:
+Der Browser lädt den amtlichen Adressbestand Basel-Stadt, Datensatz 100259:
 
 ```text
 https://data.bs.ch/api/explore/v2.1/catalog/datasets/100259/exports/json?limit=-1
 ```
 
-Es werden keine Excel-Adressen als Suchanfragen übermittelt. Abgleich über
-normalisierten Strassennamen, Hausnummer inklusive Zusatz und PLZ. Gross- und
-Kleinschreibung, Akzente, `ß`/`ss`, Leerzeichen, Satzzeichen und die Endung
-`str.`/`strasse` werden vereinheitlicht. Keine unscharfe Suche und keine
-automatische Ergänzung fehlender Hausnummern. Entstehen dabei mehrere
-unterschiedliche amtliche Punkte, wird die Adresse zur Klärung ausgewiesen.
+Strasse, Hausnummer und PLZ werden lokal normalisiert und exakt abgeglichen.
+Es werden keine Excel-Adressen oder Kommentare an einen Suchdienst gesendet.
+Der Index bleibt nur im Arbeitsspeicher. Mehrdeutige Treffer werden ausgewiesen.
+WGS84-Punkte sowie separate WGS84- und LV95/LV03-Koordinaten werden unterstützt.
+Die optionale Landeskoordinatenumrechnung ist näherungsweise auf etwa 1 m genau.
 
-Unterstützte amtliche Punktfelder:
+Für die Geometrieprüfung ist **kein Turf erforderlich**. Die App lädt nur
+Leaflet für die Karte und SheetJS für Excel, bevorzugt lokal:
 
-- Objekt `{ "lon": …, "lat": … }`, alternativ `lng` statt `lon`.
-- GeoJSON Point bzw. Feature mit Point; auch als JSON-String.
-- Array `[Längengrad, Breitengrad]`.
-- Separate WGS84-Felder.
-- Separate LV95 (Ost E / Nord N) oder LV03 (Y / X). Die Umrechnung nutzt die
-  näherungsweisen swisstopo-Polynome mit etwa einem Meter Genauigkeit. Für eine
-  Auswertung unmittelbar an der Grenze amtliche WGS84-Felder bevorzugen.
+| Bibliothek | Lokaler Pfad | Ersatzquelle im Browser |
+| --- | --- | --- |
+| Leaflet 1.9.4 | `vendor/leaflet/leaflet.js`, `leaflet.css`, `images/` | `unpkg.com` |
+| SheetJS CE 0.20.3 | `vendor/sheetjs/xlsx.full.min.js` | `cdn.sheetjs.com` |
 
-Koordinaten werden auf Plausibilität in der Region Basel geprüft. Die
-Klassifikation verwendet Turf.js `booleanPointInPolygon` gegen die unveränderten
-importierten Flächen. Ergebnisse beziehen sich auf amtliche Adresspunkte,
-nicht auf Gebäudegrundrisse oder die Lage sämtlicher Gebäudeteile.
+Die GeoBS-Grundkarte verwendet `wmts.geo.bs.ch`, Pfadreihenfolge **{z}/{y}/{x}**,
+EPSG:3857 und die Ebenen `BaseMap_grau` / `BaseMap_farbig`.
+Attribution: **GeoBS - Kanton Basel-Stadt**.
 
-## Internet und Datenschutz
-
-Bei der Entwicklung wurden durch Codex keine Netzwerkzugriffe ausgeführt.
-Beim **Benutzen der App** lädt der Browser folgende Ressourcen:
-
-| Zweck | Quelle |
-| --- | --- |
-| Leaflet 1.9.4 | `unpkg.com` |
-| Turf.js 6.5.0 | `cdn.jsdelivr.net` |
-| SheetJS CE 0.20.3 | `cdn.sheetjs.com` |
-| Hintergrundkarte | `tile.openstreetmap.org` |
-| Amtlicher Adressbestand, nach Button-Klick | `data.bs.ch` |
-
-Die App benötigt für diesen Betrieb Internet und ist nicht vollständig offline.
-Der Download des Adressbestands kann mehrere Megabyte umfassen. Bei Netzwerk-,
-CORS- oder API-Fehlern wird keine Ersatzgeokodierung verwendet. Die Fehlermeldung
-erscheint unten. Es gibt keine Speicherung in localStorage, Cookies, Telemetrie
-oder automatische Übertragung importierter Dateien. Geladene CDN-Bibliotheken
-laufen im Browser mit Zugriff auf den Seitenspeicher; für einen abgeschotteten
-Betrieb müssen diese nach gesonderter Freigabe lokal bereitgestellt werden.
-Neuladen der Seite entfernt alle Importe aus der Sitzung. Ein Button entfernt
-zusätzlich nur die Excel-Daten, ohne Perimeter oder Adressbestand zu verwerfen.
+Die Sicherheitsrichtlinie erlaubt kein `unsafe-eval`. Der statische Server
+liefert ausschliesslich freigegebene Quellcodedateien und optionale Bibliotheken.
+Er liefert keine Datenverzeichnisse und nimmt keine Excel-Uploads entgegen.
+Importe werden im Browser verarbeitet; keine Datenbank, Telemetrie oder
+Speicherung in localStorage.
 
 ## Prüfungen mit synthetischen Daten
-
-Ohne Netzwerk und ohne laufenden Server:
 
 ```powershell
 cd C:\dev\repos\fasnacht_perimeter_check
 python -m unittest discover -s tests -p "test_*.py" -v
+python tests/run_loader_checks.py
 ```
 
-Diese Tests prüfen den statischen Server ohne Sockets, Dateifreigaben,
-HTTP-Header und die Quellcodedateien. Sie lesen keine produktiven Datendateien.
+**60 JavaScript-Tests und acht Python-Tests bestehen.** Der optionale
+JavaScript-Läufer verwendet unter Windows die bereits vorhandene `Chakra.dll`.
+Er bündelt den tatsächlichen Anwendungsquellcode, ohne dessen Logik zu ersetzen.
+Nur Browser-, Datei-, Modul- und HTTP-Zugriffe sowie Timer sind synthetische Adapter;
+fehlende Standardmethoden der älteren Testlaufzeit werden ergänzt.
 
-Nach dem Start des Servers **http://127.0.0.1:8000/tests/index.html** öffnen:
-Die JavaScript-Kerntests verwenden ausschliesslich künstliche Adressen und
-Polygone und laufen ohne externe Ressourcen. Ein separater Button lädt Turf
-und SheetJS für zusätzliche synthetische Geometrie- und Excel-Rundlauftests.
-Dabei wird kein amtlicher Adressdienst abgefragt und keine Excel-Datei geöffnet
-oder heruntergeladen. Diese Browsertests wurden in der Entwicklungsumgebung
-mangels JavaScript-/Browser-Testlaufzeit nicht ausgeführt.
+Geprüft werden unter anderem der komplette Ablauf vom Dateiknopf über eine offene
+190-Punkte-CSV bis zu GWR-Zuordnung, Dreiecken und Excel-Export, offene
+GeoJSON-Polygone, Innen-/Aussenpunkte, Randpunkte, Löcher und konkave Grenzen.
+Die gleichen Tests stehen unter **http://127.0.0.1:8000/tests/index.html** bereit.
 
-## Git
+Es wurden keine echten Datendateien, Geheimnisse oder Live-Dienste abgefragt,
+keine Software installiert und keine Downloads ausgeführt. Die tatsächliche
+Live-Verfügbarkeit und Feldstruktur des GWR-Dienstes sind damit nicht bestätigt.
 
-Codex führt keine Änderungen am Git-Zustand aus. Bei Bedarf selbst ausführen:
+## Git-Befehle zum selbst Ausführen
 
 ```powershell
 cd C:\dev\repos\fasnacht_perimeter_check
-git add -- .gitignore index.html styles.css serve.py README.md src/app.js src/core.js tests/index.html tests/core.test.js tests/test_static.py
-git commit -m "Add browser-based Basel Fasnacht perimeter address checker"
+git add -p -- README.md index.html serve.py src/app.js src/core.js tests/core.test.js tests/index.html tests/test_static.py
+git add -- src/analysis.js src/analysis-core.js src/bootstrap.js tests/analysis.test.js tests/building-flow.test.js tests/bootstrap.test.js tests/markers.test.js tests/run_loader_checks.py vendor/README.md vendor/leaflet/README.md
+git diff --cached
+git commit -m "Remove Turf dependency and close perimeters automatically"
 ```

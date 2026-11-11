@@ -1,7 +1,26 @@
 <!doctype html>
-<html lang="de"><meta charset="utf-8"><title>Synthetische Tests</title>
-<body><h1>Synthetische Tests</h1><p>Diese Seite liest keine Dateien und ruft keinen Adressdienst auf. Der erste Block funktioniert ohne Internet.</p>
-<pre id="results">Tests laufen …</pre>
-<button id="integration">Turf-/Excel-Integration testen (lädt Bibliotheken aus dem Internet)</button>
-<pre id="integration-results"></pre>
-<script type="module" src="core.test.js"></script></body></html>
+<html lang="de">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Synthetische GeoJSON-/CSV-Tests</title></head>
+<body>
+  <h1>Synthetische GeoJSON-/CSV-Tests</h1>
+  <p>Alle Geometrien und Tabellen sind künstlich. Keine Dateizugriffe, externen Bibliotheken oder Netzwerkaufrufe.</p>
+  <pre id="results">Tests laufen …</pre>
+  <h2>Gebäudeauswertung und Excel-Filter</h2>
+  <p>Die lokale Perimeterprüfung verwendet künstliche Geometrien und Adressen, ohne GIS-Bibliothek.</p>
+  <pre id="analysis-results">Tests laufen …</pre>
+  <h2>Gebäude-Importablauf</h2>
+  <p>Datei, Oberfläche, Karte und Adressdienst sind vollständig durch synthetische Adapter ersetzt.</p>
+  <pre id="building-flow-results">Tests laufen …</pre>
+  <h2>Anwendungsstart</h2>
+  <p>Modulabrufe, Browserbibliotheken und Kartenstart sind vollständig ersetzt.</p>
+  <pre id="bootstrap-results">Tests laufen …</pre>
+  <h2>Gebäudemarker</h2>
+  <p>Koordinatenreihenfolge, Symbole, Ebenensichtbarkeit und Kartenausschnitt mit synthetischem Leaflet-Adapter.</p>
+  <pre id="markers-results">Tests laufen …</pre>
+  <script type="module" src="core.test.js"></script>
+  <script type="module" src="analysis.test.js"></script>
+  <script type="module" src="building-flow.test.js"></script>
+  <script type="module" src="bootstrap.test.js"></script>
+  <script type="module" src="markers.test.js"></script>
+</body>
+</html>

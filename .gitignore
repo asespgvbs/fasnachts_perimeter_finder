@@ -7,4 +7,5 @@ __pycache__/
 *.csv
 # User-provided geographic data is not source code.
 *.geojson
+*.gjson
 node_modules/
