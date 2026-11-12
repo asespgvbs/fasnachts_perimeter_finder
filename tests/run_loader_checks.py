@@ -34,14 +34,30 @@ def validate_feedback_xlsx(octets):
         styles = ET.fromstring(archive.read("xl/styles.xml"))
         dxfs = styles.find("s:dxfs", ns)
         assert dxfs.attrib["count"] == "2" and len(dxfs) == 2
-        assert [dxf.find("s:fill/s:patternFill/s:fgColor", ns).attrib["rgb"] for dxf in dxfs] == ["FFFFC7CE", "FFC6EFCE"]
+        assert [dxf.find("s:fill/s:patternFill/s:bgColor", ns).attrib["rgb"] for dxf in dxfs] == ["FFFFC7CE", "FFC6EFCE"]
+        assert [dxf.find("s:font/s:color", ns).attrib["rgb"] for dxf in dxfs] == ["FF000000", "FF000000"]
+        fonts = styles.find("s:fonts", ns)
+        cell_formats = styles.find("s:cellXfs", ns)
+        assert int(fonts.attrib["count"]) == len(fonts)
+        assert int(cell_formats.attrib["count"]) == len(cell_formats)
         for i, expected_range in enumerate(("D2:D3", "D2:D2", "D2:D2"), 1):
             sheet = ET.fromstring(archive.read(f"xl/worksheets/sheet{i}.xml"))
+            header = sheet.find('s:sheetData/s:row[@r="1"]', ns)
+            assert header.attrib["customFormat"] == "1"
+            for cell in header:
+                cell_format = cell_formats[int(cell.attrib["s"])]
+                assert cell_format.attrib["applyFont"] == "1"
+                assert fonts[int(cell_format.attrib["fontId"])].find("s:b", ns) is not None
+            for row in sheet.findall("s:sheetData/s:row", ns)[1:]:
+                for cell in row:
+                    cell_format = cell_formats[int(cell.attrib.get("s", "0"))]
+                    assert fonts[int(cell_format.attrib["fontId"])].find("s:b", ns) is None
             cf = sheet.find("s:conditionalFormatting", ns)
             assert cf.attrib["sqref"] == expected_range
             assert [rule.attrib["dxfId"] for rule in cf] == ["0", "1"]
-            assert [rule.attrib["operator"] for rule in cf] == ["equal", "equal"]
-            assert [rule.find("s:formula", ns).text for rule in cf] == ['"ausstehend"', '"erfolgt"']
+            assert [rule.attrib["type"] for rule in cf] == ["expression", "expression"]
+            assert [rule.attrib["stopIfTrue"] for rule in cf] == ["1", "1"]
+            assert [rule.find("s:formula", ns).text for rule in cf] == ['LOWER(TRIM($D2))="ausstehend"', 'LOWER(TRIM($D2))="erfolgt"']
             validation = sheet.find("s:dataValidations/s:dataValidation", ns)
             assert validation.attrib["type"] == "list" and validation.attrib["sqref"] == expected_range
             assert validation.attrib["showDropDown"] == "0" and validation.attrib["errorStyle"] == "stop"

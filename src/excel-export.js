@@ -73,10 +73,22 @@ export function addFeedbackControls(bytes, ranges) {
   };
   let styles = get('xl/styles.xml');
   if (!/<styleSheet\b/.test(styles) || !styles.includes('</styleSheet>')) throw new Error('Excel-Formatvorlagen nicht unterstützt.');
+  const fonts = styles.match(/<fonts\b[^>]*>([\s\S]*?)<\/fonts>/);
+  const cellFormats = styles.match(/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/);
+  const fontList = fonts ? fonts[1].match(/<font\b[^>]*>[\s\S]*?<\/font>/g) : null;
+  const formatList = cellFormats ? cellFormats[1].match(/<xf\b[^>]*(?:\/>|>[\s\S]*?<\/xf>)/g) : null;
+  if (!fontList || !formatList) throw new Error('Excel-Kopfzeilenformat nicht unterstützt.');
+  const boldFont = fontList[0].replace(/<b\b[^>]*(?:\/>|>[\s\S]*?<\/b>)/g, '').replace('</font>', '<b/></font>');
+  const headerStyle = formatList.length;
+  const boldStyle = formatList[0].replace(/^<xf\b[^>]*>/, tag => tag.replace(/\s(?:fontId|applyFont)="[^"]*"/g, '')
+    .replace(/\/?>$/, end => ` fontId="${fontList.length}" applyFont="1"${end}`));
+  styles = styles.replace(fonts[0], `<fonts count="${fontList.length + 1}">${fonts[1]}${boldFont}</fonts>`)
+    .replace(cellFormats[0], `<cellXfs count="${headerStyle + 1}">${cellFormats[1]}${boldStyle}</cellXfs>`);
   const existing = styles.match(/<dxfs\b[^>]*(?:\/>|>[\s\S]*?<\/dxfs>)/);
   const oldFormats = existing ? (existing[0].match(/<dxf\b/g) || []).length : 0;
-  const format = (fill, font) => `<dxf><font><color rgb="${font}"/></font><fill><patternFill patternType="solid"><fgColor rgb="${fill}"/><bgColor indexed="64"/></patternFill></fill></dxf>`;
-  const newFormats = format('FFFFC7CE', 'FF9C0006') + format('FFC6EFCE', 'FF006100');
+  // Differential fills use the background colour; normal cell fills use fgColor.
+  const format = fill => `<dxf><font><color rgb="FF000000"/></font><fill><patternFill><bgColor rgb="${fill}"/></patternFill></fill></dxf>`;
+  const newFormats = format('FFFFC7CE') + format('FFC6EFCE');
   const contents = existing && !existing[0].endsWith('/>') ? existing[0].replace(/^<dxfs\b[^>]*>|<\/dxfs>$/g, '') : '';
   const dxfs = `<dxfs count="${oldFormats + 2}">${contents}${newFormats}</dxfs>`;
   styles = existing ? styles.replace(existing[0], dxfs) : styles.replace(/<(?:tableStyles|colors|extLst)\b|<\/styleSheet>/, match => dxfs + match);
@@ -87,8 +99,13 @@ export function addFeedbackControls(bytes, ranges) {
     let xml = get(path);
     if (!/<worksheet\b/.test(xml) || !xml.includes('</sheetData>') && !xml.includes('<sheetData/>')
       || /<(?:conditionalFormatting|dataValidations)\b/.test(xml)) throw new Error('Excel-Tabellenformat für Rückmeldungen nicht unterstützt.');
+    const headerRow = /<row\b(?=[^>]*\br="1")[^>]*>[\s\S]*?<\/row>/;
+    if (!headerRow.test(xml)) throw new Error('Excel-Kopfzeile fehlt.');
+    xml = xml.replace(headerRow, row => row.replace(/^<row\b[^>]*>/, tag => tag.replace(/\s(?:s|customFormat)="[^"]*"/g, '')
+      .replace(/>$/, ` s="${headerStyle}" customFormat="1">`))
+      .replace(/<c\b[^>]*>/g, tag => tag.replace(/\ss="[^"]*"/g, '').replace(/\/?>$/, end => ` s="${headerStyle}"${end}`)));
     const range = `${column}2:${column}${Math.max(2, rows + 1)}`;
-    const rules = `<conditionalFormatting sqref="${range}"><cfRule type="cellIs" dxfId="${oldFormats}" priority="1" operator="equal"><formula>"ausstehend"</formula></cfRule><cfRule type="cellIs" dxfId="${oldFormats + 1}" priority="2" operator="equal"><formula>"erfolgt"</formula></cfRule></conditionalFormatting>`
+    const rules = `<conditionalFormatting sqref="${range}"><cfRule type="expression" dxfId="${oldFormats}" priority="1" stopIfTrue="1"><formula>LOWER(TRIM($${column}2))="ausstehend"</formula></cfRule><cfRule type="expression" dxfId="${oldFormats + 1}" priority="2" stopIfTrue="1"><formula>LOWER(TRIM($${column}2))="erfolgt"</formula></cfRule></conditionalFormatting>`
       + `<dataValidations count="1"><dataValidation type="list" allowBlank="1" showDropDown="0" showErrorMessage="1" errorStyle="stop" errorTitle="Ungültige Rückmeldung" error="Bitte ausstehend oder erfolgt auswählen." sqref="${range}"><formula1>"ausstehend,erfolgt"</formula1></dataValidation></dataValidations>`;
     const tail = /<(?:hyperlinks|printOptions|pageMargins|pageSetup|headerFooter|rowBreaks|colBreaks|customProperties|cellWatches|ignoredErrors|smartTags|drawing|legacyDrawing|legacyDrawingHF|picture|oleObjects|controls|webPublishItems|tableParts|extLst)\b|<\/worksheet>/;
     if (!tail.test(xml)) throw new Error('Excel-Tabellenabschluss fehlt.');

@@ -33,15 +33,23 @@ test('XLSX enthält echte Dropdowns und bedingte Formatierung in allen drei Blä
   ranges.forEach((_, i) => {
     const path = `xl/worksheets/sheet${i + 1}.xml`, xml = files[path], range = i === 0 ? 'D2:D3' : 'D2:D2';
     assert(xml.includes(`<conditionalFormatting sqref="${range}">`));
-    assert(xml.includes('type="cellIs" dxfId="0" priority="1" operator="equal"><formula>"ausstehend"</formula>'));
-    assert(xml.includes('type="cellIs" dxfId="1" priority="2" operator="equal"><formula>"erfolgt"</formula>'));
+    assert(xml.includes('type="expression" dxfId="0" priority="1" stopIfTrue="1"><formula>LOWER(TRIM($D2))="ausstehend"</formula>'));
+    assert(xml.includes('type="expression" dxfId="1" priority="2" stopIfTrue="1"><formula>LOWER(TRIM($D2))="erfolgt"</formula>'));
     assert(xml.includes('type="list"') && xml.includes('showDropDown="0"') && xml.includes('errorStyle="stop"'));
     assert(xml.includes('<formula1>"ausstehend,erfolgt"</formula1>'));
     assert(xml.indexOf('</conditionalFormatting>') < xml.indexOf('<dataValidations') && xml.indexOf('</dataValidations>') < xml.indexOf('<ignoredErrors>'));
-    assert(xml.match(/<sheetData>[\s\S]*?<\/sheetData>/)[0] === source[path].match(/<sheetData>[\s\S]*?<\/sheetData>/)[0], 'Zellinhalte unverändert lassen');
+    const headerRow = xml.match(/<row\b[^>]*r="1"[^>]*>[\s\S]*?<\/row>/)[0];
+    assert(headerRow.includes('s="1" customFormat="1"'));
+    assert((headerRow.match(/<c\b[^>]*>/g) || []).every(tag => tag.includes('s="1"')), 'Alle Kopfzellen fett formatieren');
+    const withoutStyles = value => value.match(/<sheetData>[\s\S]*?<\/sheetData>/)[0].replace(/\s(?:s|customFormat)="[^"]*"/g, '');
+    assert(withoutStyles(xml) === withoutStyles(source[path]), 'Zellinhalte unverändert lassen');
+    assert(xml.match(/<row r="2"[^>]*>/) === null || !xml.match(/<row r="2"[^>]*>/)[0].includes('s="1"'), 'Datenzeilen nicht fett formatieren');
   });
   assert(files['xl/styles.xml'].includes('<dxfs count="2">'));
-  for (const color of ['FFFFC7CE', 'FF9C0006', 'FFC6EFCE', 'FF006100']) assert(files['xl/styles.xml'].includes(color));
+  for (const color of ['FFFFC7CE', 'FF000000', 'FFC6EFCE']) assert(files['xl/styles.xml'].includes(color));
+  for (const color of ['FFFFC7CE', 'FFC6EFCE']) assert(files['xl/styles.xml'].includes(`<patternFill><bgColor rgb="${color}"/></patternFill>`));
+  assert(files['xl/styles.xml'].includes('<fonts count="2">') && files['xl/styles.xml'].includes('<b/></font>'));
+  assert(files['xl/styles.xml'].includes('<cellXfs count="2">') && files['xl/styles.xml'].includes('fontId="1" applyFont="1"'));
   for (const name of Object.keys(source)) if (name !== 'xl/styles.xml' && !name.startsWith('xl/worksheets/')) assert(files[name] === source[name]);
   globalThis.syntheticFeedbackXlsx = Array.from(bytes);
 });

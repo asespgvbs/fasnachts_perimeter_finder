@@ -25,15 +25,12 @@
       <input id="perimeter-offset" type="range" min="0" max="250" step="1" value="0" disabled aria-describedby="perimeter-offset-value">
       <output id="perimeter-offset-value" for="perimeter-offset" aria-live="polite">0 m</output>
     </div>
-    <p id="analysis-status" role="status" aria-live="polite">Gebäude-Excel über «Gebäude importieren» auswählen.</p>
+    <p id="analysis-status" role="status" aria-live="polite" hidden></p>
     <span class="counts" aria-live="polite"><span class="inside">▲ Innerhalb: <strong id="inside-count">–</strong></span><span class="outside">▲ Ausserhalb: <strong id="outside-count">–</strong></span><span>Ungeklärt: <strong id="unresolved-count">–</strong></span></span>
-    <p>Der Excel-Export enthält die Tabellenblätter «Innerhalb», «Ausserhalb» und «Ungeklärt». Klick auf ein Gebäudedreieck wechselt zwischen innerhalb und ausserhalb und verschiebt es im Export ins entsprechende Tabellenblatt. Bufferregler, Seitenreload oder ein neuer Perimeter-/Gebäudeimport setzen die manuelle Zuordnung zurück.</p>
-    <p>Import: Strassenname, Nummer und PLZ; weitere Spalten sind optional und ihre Werte bleiben erhalten. Im Export folgt nach der Adresse «Rückmeldung» mit Dropdown: ausstehend (rot) oder erfolgt (grün).</p>
-    <details id="unresolved-panel" hidden><summary>Nicht zugeordnete Adressen anzeigen</summary><div id="unresolved-list"></div></details>
   </section>
   <main id="map" aria-label="Karte Basel mit GeoBS-Grundkarte"></main>
   <footer>
-    <span id="status" role="status" aria-live="polite">Leaflet wird lokal geladen …</span>
+    <span id="status" role="status" aria-live="polite" hidden></span>
     <span id="tile-status" role="status" aria-live="polite"></span>
     <span id="library-status" role="status" aria-live="polite"></span>
   </footer>

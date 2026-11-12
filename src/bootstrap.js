@@ -9,10 +9,11 @@ export async function initializeApplication({ document, scope, loadModule }) {
     libraryStatus.classList.add('error');
     libraryStatus.textContent = text;
     analysisStatus.classList.add('error');
+    analysisStatus.hidden = false;
     analysisStatus.textContent = text;
   }
 
-  analysisStatus.textContent = 'Anwendung wird gestartet …';
+  analysisStatus.textContent = ''; analysisStatus.hidden = true;
   try {
     startViewer = (await loadModule('./app.js')).startViewer;
     if (typeof startViewer !== 'function') {

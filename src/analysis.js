@@ -16,7 +16,8 @@ export function renderBuildingMarkers({ L, map, insideLayer, outsideLayer, trian
     const [lon, lat] = result.coordinates, inside = result.status === 'inside';
     const marker = L.marker([lat, lon], { icon: inside ? triangle.inside : triangle.outside,
       title: inside ? 'Gebäude innerhalb' : 'Gebäude ausserhalb', keyboard: true });
-    marker.bindPopup(popup(result)).addTo(inside ? insideLayer : outsideLayer);
+    if (popup) marker.bindPopup(popup(result));
+    marker.addTo(inside ? insideLayer : outsideLayer);
     if (onToggle) marker.on('click', () => {
       const next = result.status === 'inside' ? 'outside' : 'inside';
       if (onToggle(result.members, next) === false) return;
@@ -26,9 +27,9 @@ export function renderBuildingMarkers({ L, map, insideLayer, outsideLayer, trian
       previousLayer.removeLayer(marker);
       marker.options.title = next === 'inside' ? 'Gebäude innerhalb' : 'Gebäude ausserhalb';
       marker.setIcon(triangle[next]);
-      marker.setPopupContent(popup(result));
+      if (popup) marker.setPopupContent(popup(result));
       nextLayer.addLayer(marker);
-      marker.openPopup();
+      if (popup) marker.openPopup();
     });
   }
   // An import should reveal its results even if these overlays were hidden earlier.
@@ -43,7 +44,7 @@ export function setupBuildingAnalysis(L, map, controls, environment = globalThis
   const { document, fetch } = environment;
   const $ = id => document.getElementById(id);
   const state = { XLSX: null, source: null, buffer: null,
-    imported: null, filename: '', index: null, addressPromise: null, results: null, version: 0, busy: false, evaluating: false };
+    imported: null, index: null, addressPromise: null, results: null, version: 0, busy: false, evaluating: false };
   const insideLayer = L.featureGroup().addTo(map), outsideLayer = L.featureGroup().addTo(map);
   controls.addOverlay(insideLayer, 'Gebäude innerhalb · grüne Dreiecke');
   controls.addOverlay(outsideLayer, 'Gebäude ausserhalb · rote Dreiecke');
@@ -52,9 +53,8 @@ export function setupBuildingAnalysis(L, map, controls, environment = globalThis
   const triangle = { inside: triangleIcon('#1aaa62'), outside: triangleIcon('#dc3b30') };
 
   function message(text, error = false) {
-    const imported = state.imported
-      ? `${state.filename}: ${state.imported.rows.length.toLocaleString('de-CH')} Excel-Zeilen eingelesen. ` : '';
-    $('analysis-status').textContent = imported + text;
+    $('analysis-status').textContent = error ? text : '';
+    $('analysis-status').hidden = !error;
     $('analysis-status').classList.toggle('error', error);
   }
   function buttons() {
@@ -64,11 +64,6 @@ export function setupBuildingAnalysis(L, map, controls, environment = globalThis
   function clearResults() {
     state.results = null; insideLayer.clearLayers(); outsideLayer.clearLayers();
     for (const id of ['inside-count', 'outside-count', 'unresolved-count']) $(id).textContent = '–';
-    $('unresolved-list').replaceChildren(); $('unresolved-panel').hidden = true;
-  }
-  function address(row) {
-    const c = state.imported.columns;
-    return `${row[c.street] == null ? '' : row[c.street]} ${row[c.house] == null ? '' : row[c.house]}, ${row[c.zip] == null ? '' : row[c.zip]}`.trim();
   }
   function updateCounts() {
     for (const kind of ['inside', 'outside', 'unresolved']) $(kind + '-count').textContent = state.results.filter(result => result.status === kind).length.toLocaleString('de-CH');
@@ -76,32 +71,14 @@ export function setupBuildingAnalysis(L, map, controls, environment = globalThis
   function renderResults(fitView) {
     const results = state.results;
     updateCounts();
-    const unresolved = state.results.filter(result => result.status === 'unresolved');
     renderBuildingMarkers({ L, map, insideLayer, outsideLayer, triangle, results, fitView, onToggle(members, next) {
       // Only change the current evaluation, never markers from a previous import.
       if (state.busy || state.evaluating || state.results !== results) return false;
       for (const member of members) member.status = next;
       updateCounts();
-      message(`Gebäudestatus geändert: ${members.length} Excel-Zeile(n) im Tabellenblatt «${next === 'inside' ? 'Innerhalb' : 'Ausserhalb'}». Erneutes Klicken wechselt den Status zurück.`);
-    }, popup(result) {
-      const popup = document.createElement('div'); popup.className = 'building-popup';
-      const comment = state.imported.comment;
-      popup.textContent = `${address(result.row)}\n${result.status === 'inside' ? 'Innerhalb · Tabellenblatt «Innerhalb»' : 'Ausserhalb · Tabellenblatt «Ausserhalb»'} · ${result.count} Excel-Zeile(n)${comment >= 0 && result.row[comment] != null ? `\nKommentar: ${result.row[comment]}` : ''}\nErneut auf das Dreieck klicken: Status wechseln.`;
-      return popup;
+      message('');
     } });
-    const fragment = document.createDocumentFragment();
-    for (const result of unresolved.slice(0, 100)) {
-      const item = document.createElement('div'); item.className = 'unresolved-item';
-      item.textContent = `Excel-Zeile ${result.excelRow}: ${address(result.row)}`;
-      const reason = document.createElement('small'); reason.textContent = result.reason;
-      item.append(reason); fragment.append(item);
-    }
-    $('unresolved-list').replaceChildren(fragment); $('unresolved-panel').hidden = !unresolved.length;
-    const noMatches = unresolved.length === state.results.length;
-    $('unresolved-panel').open = noMatches;
-    message(noMatches
-      ? 'Keine Adresse konnte eindeutig zugeordnet werden; deshalb erscheinen keine Gebäudemarker. Details stehen unter «Nicht zugeordnete Adressen anzeigen». Strasse, Hausnummer und PLZ prüfen.'
-      : `Adressabgleich abgeschlossen. Grüne Dreiecke: innerhalb, rote Dreiecke: ausserhalb. Klick auf ein Dreieck wechselt Status und Tabellenblatt im Export. Export enthält alle drei Kategorien in separaten Tabellenblättern.${unresolved.length > 100 ? ' Die ersten 100 ungeklärten Zeilen werden angezeigt.' : ''}`);
+    message('');
   }
   async function addressIndex() {
     if (state.index) return state.index;
@@ -128,18 +105,16 @@ export function setupBuildingAnalysis(L, map, controls, environment = globalThis
   async function evaluate(fitView = true) {
     const version = ++state.version;
     state.evaluating = true; clearResults(); buttons();
+    message('');
     try {
-      if (!state.XLSX) return;
-      if (!state.source) { message(state.imported ? 'Perimeter laden, um die Gebäude auszuwerten.' : 'Bereit. Bitte zuerst über «Perimeter laden» eine Datei auswählen.'); return; }
-      if (!state.imported) { message('Perimeter bereit. Über «Gebäude importieren» eine Excel-Datei auswählen.'); return; }
-      message('Gebäude werden im Hintergrund mit dem amtlichen GWR-Adressbestand abgeglichen …');
+      if (!state.XLSX || !state.source || !state.imported) return;
       const imported = state.imported, index = await addressIndex();
       if (version !== state.version) return;
       const results = [];
       for (let i = 0; i < imported.rows.length; i++) {
         if (version !== state.version) return;
         results.push(classifyAddress(imported.rows[i], imported.columns, index, state.source, state.buffer));
-        if (i % 300 === 0) { message(`Gebäude werden abgeglichen: ${i} / ${imported.rows.length} …`); await pause(); }
+        if (i % 300 === 0) await pause();
       }
       if (version !== state.version) return;
       state.results = results; renderResults(fitView);
@@ -151,13 +126,13 @@ export function setupBuildingAnalysis(L, map, controls, environment = globalThis
     } finally { if (version === state.version) { state.evaluating = false; buttons(); } }
   }
   $('excel-button').addEventListener('click', () => {
-    message('Bitte im Dateidialog eine Gebäude-Excel auswählen.');
+    message('');
     $('excel-input').click();
   });
   $('excel-input').addEventListener('change', async () => {
     const file = $('excel-input').files[0]; $('excel-input').value = '';
     if (!file || state.busy) return;
-    state.busy = true; buttons(); message('Gebäude-Excel wird lokal eingelesen …');
+    state.busy = true; buttons(); message('');
     await pause();
     try {
       if (!/\.(xlsx|xls)$/i.test(file.name) || file.size > 20 * 1024 * 1024) throw new Error('Bitte eine .xlsx- oder .xls-Datei bis maximal 20 MB wählen.');
@@ -165,7 +140,6 @@ export function setupBuildingAnalysis(L, map, controls, environment = globalThis
       try { workbook = state.XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true, cellFormula: false, bookVBA: false }); }
       catch (error) { throw new Error('Excel nicht lesbar. Verschlüsselte Dateien werden nicht unterstützt.'); }
       state.imported = importWorkbook(workbook, state.XLSX);
-      state.filename = file.name;
       await evaluate();
     } catch (error) { message(`Neue Datei nicht importiert: ${error.message || 'Excel konnte nicht importiert werden.'}`, true); }
     finally { state.busy = false; buttons(); }
@@ -174,16 +148,15 @@ export function setupBuildingAnalysis(L, map, controls, environment = globalThis
     if (!state.imported || state.results === null || state.busy || state.evaluating) return;
     try {
       const workbook = state.XLSX.utils.book_new();
-      const counts = [], ranges = [];
+      const ranges = [];
       for (const [status, name] of [['inside', 'Innerhalb'], ['outside', 'Ausserhalb'], ['unresolved', 'Ungeklärt']]) {
         const data = exportRows(state.imported, state.results, status);
         const sheet = state.XLSX.utils.aoa_to_sheet([data.header, ...data.rows], { cellDates: true });
         state.XLSX.utils.book_append_sheet(workbook, sheet, name);
-        counts.push(`${data.rows.length} ${name.toLowerCase()}`);
         ranges.push({ column: 'D', rows: data.rows.length });
       }
       saveFeedbackWorkbook(state.XLSX, workbook, ranges, environment);
-      message(`Gebäude-Zeilen exportiert: ${counts.join(', ')}. Rückmeldung mit Dropdown: ausstehend (rot), erfolgt (grün). Weitere Originalspalten und Werte bleiben erhalten; ungeklärte Zeilen zusätzlich mit Klärungsgrund.`);
+      message('');
     } catch (error) { message(error.message || 'Excel-Export fehlgeschlagen.', true); }
   });
   buttons();

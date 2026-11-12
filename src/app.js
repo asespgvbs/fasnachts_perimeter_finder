@@ -14,9 +14,10 @@ export function startViewer(L, environment = globalThis) {
   const offsetValue = document.getElementById('perimeter-offset-value');
   const map = L.map('map', { crs: L.CRS.EPSG3857, preferCanvas: true, maxZoom: 19 })
     .setView([47.5596, 7.62], 13);
+  if (map.attributionControl) map.attributionControl.setPrefix(false);
   const layerControl = L.control.layers({}, {}, { position: 'topright' }).addTo(map);
   let currentLayer = null;
-  let source = null, offsetTimer = null, geometryVersion = 0;
+  let source = null, offsetTimer = null;
   const analysis = setupBuildingAnalysis(L, map, layerControl, environment);
 
   function basemap(style) {
@@ -41,10 +42,8 @@ export function startViewer(L, environment = globalThis) {
   layerControl.addBaseLayer(gray, 'GeoBS grau');
   layerControl.addBaseLayer(color, 'GeoBS farbig');
   gray.addTo(map);
-  L.control.scale({ imperial: false }).addTo(map);
 
   async function showGeometry(result, name, fitView = true) {
-    const version = ++geometryVersion;
     let candidate;
     try {
       const perimeter = perimeterArea(result.geojson);
@@ -67,7 +66,6 @@ export function startViewer(L, environment = globalThis) {
       offset.disabled = false;
       layerControl.addOverlay(currentLayer, 'Perimeter');
       await analysis.setPerimeter(perimeter.area, buffer, fitView);
-      if (version === geometryVersion) status.textContent = `${name} · ${result.positionCount.toLocaleString('de-CH')} Positionen · Perimeterfläche · Erweiterung ${buffer.meters} m${perimeter.closedRings ? ' · letzter Punkt mit erstem verbunden' : ''}${result.emptyCount ? ` · ${result.emptyCount} leere Geometrien ausgelassen` : ''}`;
     } catch (error) {
       if (candidate && candidate !== currentLayer) map.removeLayer(candidate);
       throw error;
@@ -90,11 +88,12 @@ export function startViewer(L, environment = globalThis) {
   async function load(action) {
     fileButton.disabled = true;
     status.classList.remove('error');
-    status.textContent = 'Perimeter wird geladen und geprüft …';
+    status.textContent = ''; status.hidden = true;
     try {
       await action();
     } catch (error) {
       status.classList.add('error');
+      status.hidden = false;
       status.textContent = `${error.message || 'Die Geometrien konnten nicht geladen werden.'} Bisher geladene Geometrien bleiben erhalten.`;
     } finally {
       fileButton.disabled = false;
@@ -129,6 +128,6 @@ export function startViewer(L, environment = globalThis) {
   new ResizeObserver(() => map.invalidateSize()).observe(document.getElementById('map'));
   fileButton.disabled = false;
   offset.value = '0'; offset.disabled = true; offsetValue.textContent = '0 m';
-  status.textContent = 'Kein Perimeter geladen. Bitte über «Perimeter laden» eine Datei auswählen.';
+  status.textContent = ''; status.hidden = true;
   return { analysis };
 }

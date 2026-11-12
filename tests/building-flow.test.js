@@ -33,7 +33,7 @@ const perimeter = { type: 'FeatureCollection', features: [
 
 function environment({ records, responseOK = true, badWorkbook = false, useViewer = false, workbookRows } = {}) {
   const nodes = Object.fromEntries(['analysis-status', 'excel-button', 'export-button', 'excel-input',
-    'inside-count', 'outside-count', 'unresolved-count', 'unresolved-list', 'unresolved-panel',
+    'inside-count', 'outside-count', 'unresolved-count',
     'file-button', 'file-input', 'status', 'tile-status', 'map', 'perimeter-offset', 'perimeter-offset-value'].map(id => [id, element()]));
   const fakeDocument = { body: element(), getElementById: id => nodes[id], createElement: element, createDocumentFragment: element };
   const values = [['Strasse', 'Nummer', 'Plz', 'Kommentar'], ...(workbookRows || [['Kunstgasse', 1, 4000, 'synthetisch'], ['Kunstgasse', 2, 4000, 'synthetisch']])];
@@ -95,7 +95,7 @@ await test('Vollständiger Ablauf: Knopf, offene 190-Punkte-CSV, GWR-Abgleich, D
   const boundary = env.drawn[0].features[0].geometry;
   assert(boundary.type === 'Polygon' && boundary.coordinates[0].length === 191);
   assert(JSON.stringify(boundary.coordinates[0][0]) === JSON.stringify(boundary.coordinates[0][190]));
-  assert(env.nodes.status.textContent.includes('letzter Punkt mit erstem verbunden'));
+  assert(env.nodes.status.hidden && env.nodes.status.textContent === '');
   await env.upload();
   assert(env.nodes['inside-count'].textContent === '1' && env.nodes['outside-count'].textContent === '1');
   assert(env.markers.length === 2 && env.markers.every(marker => marker.options.icon.html.includes('<svg')));
@@ -109,7 +109,7 @@ await test('Offenes GeoJSON-Polygon schliessen und vorhandene Excel danach auswe
   const env = environment({ useViewer: true });
   await env.analysis.setLibraries(env.XLSX);
   await env.upload();
-  assert(env.requests() === 0 && env.nodes['analysis-status'].textContent.includes('Perimeter laden'));
+  assert(env.requests() === 0 && env.nodes['analysis-status'].hidden);
   await env.loadPerimeter('synthetisch.geojson', JSON.stringify({ type: 'Polygon', coordinates: [ring.slice(0, -1)] }));
   const boundary = env.drawn[0].features[0].geometry.coordinates[0];
   assert(boundary.length === ring.length);
@@ -134,7 +134,7 @@ await test('Regler aktualisiert Fläche, Gebäude und Export ohne erneuten GWR-D
   assert(env.nodes['inside-count'].textContent === '2' && env.nodes['outside-count'].textContent === '0');
   assert(env.requests() === 1 && env.zooms() === zooms);
   assert(env.drawnStyles[1].fillRule === 'nonzero' && env.drawnStyles[1].stroke === false);
-  assert(env.nodes.status.textContent.includes('Erweiterung 50 m'));
+  assert(env.nodes.status.hidden && env.nodes.status.textContent === '');
   env.nodes['export-button'].handlers.click();
   assert(env.exported[0].Sheets.Innerhalb.length === 3, 'Beide Zeilen aus dem erweiterten Perimeter exportieren');
   const fifty = JSON.stringify(env.drawn[1]);
@@ -154,8 +154,7 @@ await test('Upload, GWR-Abgleich, Dreiecke und Export ohne GIS-Bibliothek', asyn
   await env.upload();
   assert(env.nodes['inside-count'].textContent === '1');
   assert(env.nodes['outside-count'].textContent === '1');
-  assert(env.nodes['analysis-status'].textContent.includes('synthetisch.xlsx: 2 Excel-Zeilen eingelesen.'));
-  assert(env.nodes['analysis-status'].textContent.includes('Adressabgleich abgeschlossen'));
+  assert(env.nodes['analysis-status'].hidden && env.nodes['analysis-status'].textContent === '');
   assert(env.zooms() === 1, 'Gebäudemarker in den sichtbaren Kartenausschnitt nehmen');
   assert(!env.nodes['export-button'].disabled);
   env.nodes['export-button'].handlers.click();
@@ -186,7 +185,7 @@ await test('Ein Export enthält alle drei Kategorien vollständig, mit Originalr
   assert(unresolved.length === 103, 'Alle ungeklärten Zeilen exportieren, unabhängig vom Anzeigelimit von 100');
   assert(JSON.stringify(unresolved.slice(1).map(row => [...row.slice(0, 3), row[4]])) === JSON.stringify(unknown));
   assert(unresolved.slice(1).every(row => row[3] === 'ausstehend' && typeof row[5] === 'string' && row[5].length > 0));
-  assert(env.nodes['analysis-status'].textContent.includes('2 innerhalb, 2 ausserhalb, 102 ungeklärt'));
+  assert(env.nodes['analysis-status'].hidden && env.nodes['analysis-status'].textContent === '');
   env.markers[0].handlers.click(); env.markers[1].handlers.click();
   env.nodes['export-button'].handlers.click();
   const changed = env.exported[1];
@@ -196,7 +195,7 @@ await test('Ein Export enthält alle drei Kategorien vollständig, mit Originalr
   assert(JSON.stringify(rows) === before, 'Originalzeilen unverändert erhalten');
 });
 
-await test('Beliebig oft alle Gebäude umschalten: Farben, Ebenen, Popup, Zähler und Export folgen', async () => {
+await test('Beliebig oft alle Gebäude ohne Popup umschalten: Farben, Ebenen, Zähler und Export folgen', async () => {
   const env = environment();
   await env.analysis.setLibraries(env.XLSX);
   await env.analysis.setPerimeter(perimeter);
@@ -210,7 +209,8 @@ await test('Beliebig oft alle Gebäude umschalten: Farben, Ebenen, Popup, Zähle
     assert(env.groups[0].children.length === 1 && env.groups[0].children[0] === (reversed ? outside : inside));
     assert(env.groups[1].children.length === 1 && env.groups[1].children[0] === (reversed ? inside : outside));
     assert(outside.options.title === (reversed ? 'Gebäude innerhalb' : 'Gebäude ausserhalb'));
-    assert(outside.popup.textContent.includes(reversed ? 'Innerhalb · Tabellenblatt «Innerhalb»' : 'Ausserhalb · Tabellenblatt «Ausserhalb»'));
+    assert(outside.popup === undefined && !outside.popupOpen && inside.popup === undefined, 'Keine Gebäudepopups anzeigen');
+    assert(env.nodes['analysis-status'].hidden && env.nodes['analysis-status'].textContent === '');
     assert(env.nodes['inside-count'].textContent === '1' && env.nodes['outside-count'].textContent === '1');
     env.nodes['export-button'].handlers.click();
     assert(env.exported[i].Sheets.Innerhalb.length === 2 && env.exported[i].Sheets.Innerhalb[1][1] === (reversed ? 2 : 1));
@@ -232,7 +232,7 @@ await test('Alle Excel-Zeilen desselben Gebäudepunkts gemeinsam umschalten, ung
   env.markers[1].handlers.click();
   assert(env.nodes['inside-count'].textContent === '3' && env.nodes['outside-count'].textContent === '0');
   assert(env.nodes['unresolved-count'].textContent === '1');
-  assert(env.markers[1].popup.textContent.includes('2 Excel-Zeile(n)'));
+  assert(env.markers[1].popup === undefined);
   env.nodes['export-button'].handlers.click();
   assert(JSON.stringify(env.exported[0].Sheets.Innerhalb.slice(1).map(row => row[4])) === JSON.stringify(['Innen', 'Aussen A', 'Aussen B']));
   env.markers[1].handlers.click(); env.markers[0].handlers.click();
@@ -295,7 +295,7 @@ await test('Neuer Seitenstart übernimmt keine manuellen Änderungen', async () 
   fresh.nodes['export-button'].handlers.click(); assert(fresh.exported[0].Sheets.Innerhalb[1][1] === 1);
 });
 
-await test('Fehlende Treffer erklären die leere Karte und öffnen die Klärungsliste', async () => {
+await test('Ungeklärte Treffer ohne zusätzliche Hinweistexte weiterhin vollständig exportieren', async () => {
   const env = environment({ records: [
     { strname: 'Andere Kunstgasse', deinr: 3, dplz4: 4000, geo_point_2d: { lon: 7.6, lat: 47.55 } },
   ] });
@@ -303,8 +303,7 @@ await test('Fehlende Treffer erklären die leere Karte und öffnen die Klärungs
   await env.analysis.setPerimeter(perimeter);
   await env.upload();
   assert(env.nodes['unresolved-count'].textContent === '2');
-  assert(env.nodes['unresolved-panel'].open && !env.nodes['unresolved-panel'].hidden);
-  assert(env.nodes['analysis-status'].textContent.includes('deshalb erscheinen keine Gebäudemarker'));
+  assert(env.nodes['analysis-status'].hidden && env.nodes['analysis-status'].textContent === '');
   assert(env.zooms() === 0);
   assert(!env.nodes['export-button'].disabled, 'Auch ausschliesslich ungeklärte Ergebnisse exportieren');
   env.nodes['export-button'].handlers.click();
@@ -321,7 +320,7 @@ await test('Sobald SheetJS bereit ist, sofort ohne GIS-Ladephase auswerten', asy
   assert(!env.nodes['excel-button'].disabled);
   await env.upload();
   assert(env.nodes['inside-count'].textContent === '1');
-  assert(env.nodes['analysis-status'].textContent.includes('Adressabgleich abgeschlossen'));
+  assert(env.nodes['analysis-status'].hidden && env.nodes['analysis-status'].textContent === '');
   assert(env.requests() === 1);
 });
 
@@ -329,7 +328,7 @@ await test('Ohne Perimeter importierte Datei erhalten und nach Perimeterwahl aus
   const env = environment();
   await env.analysis.setLibraries(env.XLSX);
   await env.upload();
-  assert(env.nodes['analysis-status'].textContent.includes('Perimeter laden'));
+  assert(env.nodes['analysis-status'].hidden);
   assert(env.requests() === 0);
   await env.analysis.setPerimeter(perimeter);
   assert(env.nodes['inside-count'].textContent === '1');
@@ -340,7 +339,7 @@ await test('Dienstausfall sichtbar melden und erneuten Import ermöglichen', asy
   await env.analysis.setLibraries(env.XLSX);
   await env.analysis.setPerimeter(perimeter);
   await env.upload();
-  assert(env.nodes['analysis-status'].textContent.includes('2 Excel-Zeilen eingelesen'));
+  assert(!env.nodes['analysis-status'].hidden, 'Tatsächliche Fehler weiterhin anzeigen');
   assert(env.nodes['analysis-status'].textContent.includes('HTTP 503'));
   assert(!env.nodes['excel-button'].disabled && env.nodes['export-button'].disabled);
   await env.upload();

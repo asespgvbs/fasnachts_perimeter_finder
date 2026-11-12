@@ -21,17 +21,27 @@ Spalte «Rückmeldung» wird wiederverwendet; ihre bisherigen Werte bleiben erha
 
 In allen drei Tabellenblättern enthält die Rückmeldung ein Excel-Dropdown mit
 **ausstehend** und **erfolgt**. Bedingte Formatierung färbt die Rückmeldungszelle
-bei «ausstehend» rot und bei «erfolgt» grün, auch nach einer Änderung in Excel.
+mit schwarzer Schrift und bei «ausstehend» rotem bzw. bei «erfolgt» grünem
+Hintergrund, auch nach einer Änderung in Excel. Die gesamte Kopfzeile ist in
+allen drei Tabellenblättern fett formatiert.
 Die Regeln gelten für die exportierten Datenzeilen, bei leeren Kategorien für D2.
 Vorhandene andere Rückmeldungswerte bleiben erhalten und erhalten keine dieser
 Farben; neue direkte Eingaben werden auf die beiden Dropdownwerte beschränkt.
+Die Farbregeln prüfen den jeweiligen Rückmeldungswert mit einer Excel-Formel;
+Gross-/Kleinschreibung und umgebende Leerzeichen werden dabei ignoriert.
 
 Gefundene Gebäude erscheinen als **Dreiecke**: grün innerhalb, rot ausserhalb.
 Der Kartenausschnitt wird auf die Treffer gesetzt. Nicht zuordenbare Adressen
-stehen mit dem Grund in der Klärungsliste; sie bekommen keine erfundene Position.
+stehen mit dem Grund im Excel-Tabellenblatt «Ungeklärt»; sie bekommen keine
+erfundene Position.
+
+Die Oberfläche zeigt Bedienelemente, Gebäudezähler und Karte. Zusätzliche
+Anleitungstexte, Import-/Exportmeldungen, Dateidetails, Klärungsliste,
+Gebäudepopups und Kartenmassstab werden nicht angezeigt. Tatsächliche Fehler
+bleiben sichtbar. Die Quellenangabe «GeoBS - Kanton Basel-Stadt» bleibt an der Karte.
 
 Ein Klick auf ein Dreieck wechselt dessen Status, Farbe, Gebäudeebene und
-Tabellenblatt im Export; die Zähler und das Popup werden sofort aktualisiert.
+Tabellenblatt im Export; die Zähler werden sofort aktualisiert.
 So lassen sich Gebäude zwischen «Innerhalb» und «Ausserhalb» verschieben.
 Alle Excel-Zeilen desselben Adresspunkts wechseln gemeinsam. Ein weiterer Klick
 wechselt den Status zurück, ohne den Kartenausschnitt zu verändern.
@@ -89,8 +99,8 @@ her. Bei Auswahl eines anderen Perimeters bleibt der eingestellte Meterwert akti
   Hausnummerzusätze bleiben erhalten; PLZ ist vierstellig.
   Maximal 50’000 Datenzeilen und 256 Spalten. Leerzeilen werden ignoriert.
 - Zähler und Export zählen Excel-Zeilen einschliesslich Duplikaten.
-  Derselbe Adresspunkt wird nur einmal markiert. Klick wechselt den Status und
-  zeigt Adresse, Kommentar und das aktuelle Tabellenblatt im Export.
+  Derselbe Adresspunkt wird nur einmal markiert. Klick wechselt den Status,
+  ohne ein Popup oder einen zusätzlichen Hinweistext zu öffnen.
 - Beim Perimeterwechsel werden bereits importierte Gebäude neu ausgewertet.
   Ein fehlerhafter Dateiimport behält den bisherigen Stand.
 - Der Export enthält alle Zeilen nach aktuellem Status getrennt in den Blättern
@@ -98,12 +108,15 @@ her. Bei Auswahl eines anderen Perimeters bleibt der eingestellte Meterwert akti
   ursprüngliche Zeilenreihenfolge und Duplikate erhalten. Nach Adresse und
   Rückmeldung folgen sämtliche weiteren Originalspalten in ihrer relativen Reihenfolge.
   Das Blatt «Ungeklärt» enthält zusätzlich den Klärungsgrund und immer alle
-  ungeklärten Zeilen, auch wenn die Oberfläche nur die ersten 100 zeigt.
+  ungeklärten Zeilen.
   Formatierungen, Makros und weitere Tabellenblätter der Quelldatei werden nicht
   übernommen; Formeln werden als gespeicherte Werte behandelt.
 
 Dropdown und bedingte Formatierung werden als standardisierte OOXML-Regeln
 direkt in die neu erzeugte XLSX-Datei eingefügt, ohne zusätzliche Bibliothek.
+Die differentiellen Füllformate definieren die rote bzw. grüne Hintergrundfarbe
+über `bgColor` und die schwarze Schrift separat; die Regeln verwenden relative
+Zeilenbezüge auf die Spalte «Rückmeldung».
 Dafür wird SheetJS ohne ZIP-Kompression verwendet; die Exportdatei kann dadurch
 grösser ausfallen. ZIP-Prüfsummen werden neu berechnet. Bei einem unerwarteten
 ZIP-/Tabellenformat wird der Export mit sichtbarer Fehlermeldung abgebrochen.
@@ -161,7 +174,7 @@ Zusätzlich geprüft: 0/250-m-Grenzen, runde Ecken, schrumpfende Löcher,
 zusammenwachsende Teilflächen, Rückkehr zur Originalgrenze und Regleränderungen
 einschliesslich Gebäudezuordnung und Export ohne erneuten Adressdownload.
 Ebenfalls geprüft: wiederholtes Umschalten aller Marker, gemeinsame Auswahl
-mehrfach vorhandener Excel-Zeilen, Farben, Gebäudeebenen, Popup und Export sowie
+mehrfach vorhandener Excel-Zeilen, Farben, Gebäudeebenen, Umschalten ohne Popup und Export sowie
 das Zurücksetzen bei Bufferbedienung, Perimeter-/Gebäudeimport und neuem Seitenstart.
 Der Export wird mit allen drei Tabellenblättern, leeren Kategorien, manuellen
 Statuswechseln und mehr als 100 ungeklärten Zeilen einschliesslich Klärungsgründen geprüft.
@@ -183,7 +196,7 @@ Live-Verfügbarkeit und Feldstruktur des GWR-Dienstes sind damit nicht bestätig
 
 ```powershell
 cd C:\dev\repos\fasnacht_perimeter_check
-git add -- README.md index.html serve.py src/analysis.js src/analysis-core.js src/excel-export.js tests/analysis.test.js tests/building-flow.test.js tests/excel-export.test.js tests/excel-fixtures.js tests/index.html tests/run_loader_checks.py
+git add -- README.md index.html styles.css src/app.js src/analysis.js src/bootstrap.js src/excel-export.js tests/building-flow.test.js tests/excel-export.test.js tests/run_loader_checks.py
 git diff --cached
-git commit -m "Add feedback dropdown and conditional formatting to Excel exports"
+git commit -m "Simplify map interface and fix feedback conditional fills"
 ```
