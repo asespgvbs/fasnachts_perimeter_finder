@@ -2,14 +2,29 @@
 
 1. **Perimeter laden:** CSV oder GeoJSON auswählen. Offene Punktfolgen werden
    automatisch geschlossen: letzter Punkt wird mit dem ersten verbunden.
-2. **Gebäude importieren:** Excel mit **Strasse, Nummer, PLZ, Kommentar**
-   auswählen. Die App gleicht die Adressen mit dem amtlichen GWR-Adressbestand ab.
+2. **Gebäude importieren:** Excel mit **Strassenname, Nummer und PLZ**
+   auswählen. Beliebige weitere Spalten, beispielsweise Kommentar, sind optional.
+   Die App gleicht nur die Adressen mit dem amtlichen GWR-Adressbestand ab.
 3. **Auswahl anpassen:** Auf ein Gebäudedreieck klicken, um zwischen innerhalb
    und ausserhalb zu wechseln. Beliebig oft und für jedes gefundene Gebäude möglich.
 4. **Alle Kategorien exportieren:** Eine Excel-Datei mit den Tabellenblättern
    **Innerhalb**, **Ausserhalb** und **Ungeklärt**, einschliesslich aller
    ursprünglichen Spalten und Kommentare. Ungeklärte Zeilen enthalten zusätzlich
    den Klärungsgrund. Leere Kategorien erhalten ein Blatt mit Kopfzeile.
+
+Der Export beginnt mit den drei Adressspalten und danach **Rückmeldung**.
+Anschliessend folgen alle weiteren Originalspalten mit unveränderten Überschriften,
+Werten und relativer Reihenfolge, auch doppelte oder leere Überschriften.
+Adresswerte werden für den Export nicht normalisiert oder umgeschrieben.
+Neue Rückmeldungen starten mit **ausstehend**. Eine bereits vorhandene eindeutige
+Spalte «Rückmeldung» wird wiederverwendet; ihre bisherigen Werte bleiben erhalten.
+
+In allen drei Tabellenblättern enthält die Rückmeldung ein Excel-Dropdown mit
+**ausstehend** und **erfolgt**. Bedingte Formatierung färbt die Rückmeldungszelle
+bei «ausstehend» rot und bei «erfolgt» grün, auch nach einer Änderung in Excel.
+Die Regeln gelten für die exportierten Datenzeilen, bei leeren Kategorien für D2.
+Vorhandene andere Rückmeldungswerte bleiben erhalten und erhalten keine dieser
+Farben; neue direkte Eingaben werden auf die beiden Dropdownwerte beschränkt.
 
 Gefundene Gebäude erscheinen als **Dreiecke**: grün innerhalb, rot ausserhalb.
 Der Kartenausschnitt wird auf die Treffer gesetzt. Nicht zuordenbare Adressen
@@ -69,8 +84,8 @@ her. Bei Auswahl eines anderen Perimeters bleibt der eingestellte Meterwert akti
   gezeichneten Kreisrundungen weichen bei 250 m höchstens etwa 0,31 m von diesen
   Rundungen ab; die Kartenanzeige ist daher eine feine Näherung der Erweiterung.
 - Maximal 20 MB pro Import und 5’000 Perimeterpositionen.
-- Excel: erste Zeile enthält die Überschriften. Übliche Varianten wie
-  `Strassenname`, `Hausnummer` und `Plz` werden automatisch erkannt.
+- Excel: erste Zeile enthält `Strassenname`, `Nummer` und `PLZ`.
+  Übliche Varianten wie `Strasse`, `Hausnummer` und `Plz` werden ebenfalls erkannt.
   Hausnummerzusätze bleiben erhalten; PLZ ist vierstellig.
   Maximal 50’000 Datenzeilen und 256 Spalten. Leerzeilen werden ignoriert.
 - Zähler und Export zählen Excel-Zeilen einschliesslich Duplikaten.
@@ -80,11 +95,18 @@ her. Bei Auswahl eines anderen Perimeters bleibt der eingestellte Meterwert akti
   Ein fehlerhafter Dateiimport behält den bisherigen Stand.
 - Der Export enthält alle Zeilen nach aktuellem Status getrennt in den Blättern
   «Innerhalb», «Ausserhalb» und «Ungeklärt». Innerhalb jedes Blatts bleiben die
-  ursprüngliche Reihenfolge, Duplikate und sämtliche Originalspalten erhalten.
+  ursprüngliche Zeilenreihenfolge und Duplikate erhalten. Nach Adresse und
+  Rückmeldung folgen sämtliche weiteren Originalspalten in ihrer relativen Reihenfolge.
   Das Blatt «Ungeklärt» enthält zusätzlich den Klärungsgrund und immer alle
   ungeklärten Zeilen, auch wenn die Oberfläche nur die ersten 100 zeigt.
   Formatierungen, Makros und weitere Tabellenblätter der Quelldatei werden nicht
   übernommen; Formeln werden als gespeicherte Werte behandelt.
+
+Dropdown und bedingte Formatierung werden als standardisierte OOXML-Regeln
+direkt in die neu erzeugte XLSX-Datei eingefügt, ohne zusätzliche Bibliothek.
+Dafür wird SheetJS ohne ZIP-Kompression verwendet; die Exportdatei kann dadurch
+grösser ausfallen. ZIP-Prüfsummen werden neu berechnet. Bei einem unerwarteten
+ZIP-/Tabellenformat wird der Export mit sichtbarer Fehlermeldung abgebrochen.
 
 ## Adressabgleich und Browserbibliotheken
 
@@ -126,7 +148,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 python tests/run_loader_checks.py
 ```
 
-**74 JavaScript-Tests und acht Python-Tests bestehen.** Der optionale
+**80 JavaScript-Tests und acht Python-Tests bestehen.** Der optionale
 JavaScript-Läufer verwendet unter Windows die bereits vorhandene `Chakra.dll`.
 Er bündelt den tatsächlichen Anwendungsquellcode, ohne dessen Logik zu ersetzen.
 Nur Browser-, Datei-, Modul- und HTTP-Zugriffe sowie Timer sind synthetische Adapter;
@@ -143,6 +165,14 @@ mehrfach vorhandener Excel-Zeilen, Farben, Gebäudeebenen, Popup und Export sowi
 das Zurücksetzen bei Bufferbedienung, Perimeter-/Gebäudeimport und neuem Seitenstart.
 Der Export wird mit allen drei Tabellenblättern, leeren Kategorien, manuellen
 Statuswechseln und mehr als 100 ungeklärten Zeilen einschliesslich Klärungsgründen geprüft.
+Zusätzlich geprüft: optionale Zusatzspalten mit unterschiedlichen Werttypen,
+erhaltene Rückmeldungen beim erneuten Import, echte Dropdown-/Formatierungsregeln,
+unveränderte Zellinhalte und das Ablehnen beschädigter Exportdateien.
+Python prüft die synthetisch erzeugte XLSX zusätzlich unabhängig mit den
+Standardbibliotheken für ZIP und XML, einschliesslich Prüfsummen, Regelbereichen
+und Farbreferenzen. Die lokal optionale SheetJS-Distribution und Excel selbst
+stehen in der Entwicklungsumgebung nicht zur Verfügung; deren tatsächliche
+Browser-/Excel-Ausführung ist damit nicht bestätigt.
 Die gleichen Tests stehen unter **http://127.0.0.1:8000/tests/index.html** bereit.
 
 Es wurden keine echten Datendateien, Geheimnisse oder Live-Dienste abgefragt,
@@ -153,7 +183,7 @@ Live-Verfügbarkeit und Feldstruktur des GWR-Dienstes sind damit nicht bestätig
 
 ```powershell
 cd C:\dev\repos\fasnacht_perimeter_check
-git add -- README.md index.html src/analysis.js tests/building-flow.test.js
+git add -- README.md index.html serve.py src/analysis.js src/analysis-core.js src/excel-export.js tests/analysis.test.js tests/building-flow.test.js tests/excel-export.test.js tests/excel-fixtures.js tests/index.html tests/run_loader_checks.py
 git diff --cached
-git commit -m "Export all building categories to separate Excel worksheets"
+git commit -m "Add feedback dropdown and conditional formatting to Excel exports"
 ```

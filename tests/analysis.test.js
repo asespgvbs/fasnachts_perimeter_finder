@@ -53,7 +53,7 @@ test('Excel-Spalten und passendes Tabellenblatt automatisch erkennen', () => {
 test('Excel ohne erforderliche Adressspalten verständlich ablehnen', () => {
   const workbook = { SheetNames: ['Test'], Sheets: { Test: { '!ref': 'A1', values: [['Kommentar'], ['synthetisch']] } } };
   const XLSX = { utils: { decode_range: () => ({ e: { r: 1, c: 0 } }), sheet_to_json: sheet => sheet.values } };
-  rejects(() => importWorkbook(workbook, XLSX), /Strasse, Nummer und PLZ/);
+  rejects(() => importWorkbook(workbook, XLSX), /Strassenname, Nummer und PLZ/);
 });
 test('Keine fehlenden PLZ/Nummern ergänzen oder Hausnummerzusätze entfernen', () => {
   equal(addressKey('Kunstgasse', '', 4000), null);
@@ -234,16 +234,49 @@ test('Export bewahrt Kommentar, Originalspalten, Duplikate und Reihenfolge', () 
   const results = [{ row, status: 'inside' }, { row, status: 'outside' }, { row, status: 'inside' }];
   const before = JSON.stringify(results);
   const exported = exportRows(imported, results, 'inside');
-  equal(exported.header, imported.header); equal(exported.rows, [row, row]);
-  equal(exportRows(imported, results, 'outside').rows, [row]); equal(JSON.stringify(results), before);
+  const expected = [...row.slice(0, 3), 'ausstehend', ...row.slice(3)];
+  equal(exported.header, [...imported.header.slice(0, 3), 'Rückmeldung', ...imported.header.slice(3)]); equal(exported.rows, [expected, expected]);
+  equal(exportRows(imported, results, 'outside').rows, [expected]); equal(JSON.stringify(results), before);
 });
 test('Klärungsliste bekommt eindeutige Grundspalte, keine ungeklärten Innen-Treffer', () => {
   const imported = { header: ['Strasse', 'Nummer', 'PLZ', 'Kommentar', 'Klärungsgrund'] };
   const results = [{ row: ['Kunstgasse', 3, 4000, 'synthetisch'], status: 'unresolved', reason: 'unbekannt' }];
   const data = exportRows(imported, results, 'unresolved');
-  equal(data.header[5], 'Klärungsgrund_'); equal(data.rows[0][5], 'unbekannt');
+  equal(data.header[6], 'Klärungsgrund_'); equal(data.rows[0][6], 'unbekannt');
   equal(exportRows(imported, results, 'inside').rows.length, 0);
   rejects(() => exportRows(imported, results, 'all'));
+});
+
+test('Strassenname, Nummer und PLZ genügen; beliebige weitere Spalten und Werttypen unverändert übernehmen', () => {
+  const header = ['Strassenname', 'Nummer', 'PLZ', ' Kennung ', 'Zusatz', 'Zusatz', null, 'Datum', 'Zahl', 'Text'];
+  const date = new Date('2026-01-02T00:00:00Z');
+  const row = ['Kunstgasse', '01a', '4000', '000001', false, 0, null, date, 12.345, '  Ä & < >\n=kein Formelauftrag  '];
+  const workbook = { SheetNames: ['Test'], Sheets: { Test: { '!ref': 'A1:J2', values: [header, row] } } };
+  const XLSX = { utils: { decode_range: () => ({ e: { r: 1, c: 9 } }), sheet_to_json: sheet => sheet.values } };
+  const imported = importWorkbook(workbook, XLSX), before = JSON.stringify(imported);
+  equal(imported.comment, -1); equal(imported.columns, columns);
+  for (const status of ['inside', 'outside', 'unresolved']) {
+    const data = exportRows(imported, [{ row, status, reason: 'Testgrund' }], status);
+    equal(data.header.slice(0, 4), ['Strassenname', 'Nummer', 'PLZ', 'Rückmeldung']);
+    equal(data.header.slice(4, 11), header.slice(3));
+    const exported = data.rows[0];
+    for (let i = 3; i < row.length; i++) assert(exported[i + 1] === row[i], 'Zusatzwerte ohne Umwandlung übernehmen');
+    equal(exported.slice(0, 4), [...row.slice(0, 3), 'ausstehend']);
+  }
+  equal(JSON.stringify(imported), before);
+});
+
+test('Vorhandene Rückmeldung erhalten und bei erneutem Export keine doppelte Spalte einfügen', () => {
+  const imported = { header: ['Notiz', 'PLZ', 'Nummer', 'Strassenname', 'Rückmeldung', 'Zusatz'], columns: { street: 3, house: 2, zip: 1 } };
+  for (const feedback of ['erfolgt', 'ausstehend', '', null, 'eigener bisheriger Wert']) {
+    const row = [' Notiz ', '4000', '01a', 'Kunstgasse', feedback, false];
+    const data = exportRows(imported, [{ row, status: 'inside' }], 'inside');
+    equal(data.header, ['Strassenname', 'Nummer', 'PLZ', 'Rückmeldung', 'Notiz', 'Zusatz']);
+    equal(data.rows[0], ['Kunstgasse', '01a', '4000', feedback, ' Notiz ', false]);
+    const repeated = exportRows({ header: data.header, columns }, [{ row: data.rows[0], status: 'inside' }], 'inside');
+    equal(repeated, data);
+  }
+  rejects(() => exportRows({ header: ['Strassenname', 'Nummer', 'PLZ', 'Rückmeldung', 'Rückmeldung'] }, [], 'inside'), /Mehrere Spalten/);
 });
 
 document.getElementById('analysis-results').textContent = [...messages, `\n${passed} erfolgreich, ${failed} fehlgeschlagen.`].join('\n');

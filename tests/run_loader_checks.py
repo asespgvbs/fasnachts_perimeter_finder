@@ -7,9 +7,12 @@ from collections import deque
 import ctypes
 from ctypes import byref, c_size_t, c_uint, c_ushort, c_void_p, c_wchar_p
 import json
+from io import BytesIO
 from pathlib import Path
 import re
 import sys
+from xml.etree import ElementTree as ET
+from zipfile import ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -18,22 +21,64 @@ def source(name):
     return (ROOT / name).read_text(encoding="utf-8")
 
 
+def validate_feedback_xlsx(octets):
+    """Independently check the generated synthetic ZIP/OOXML with Python stdlib."""
+    ns = {"s": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    with ZipFile(BytesIO(bytes(octets))) as archive:
+        assert archive.testzip() is None, "Invalid ZIP checksum"
+        for name in archive.namelist():
+            if name.endswith((".xml", ".rels")):
+                ET.fromstring(archive.read(name))
+        workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+        assert [sheet.attrib["name"] for sheet in workbook.findall("s:sheets/s:sheet", ns)] == ["Innerhalb", "Ausserhalb", "Ungeklärt"]
+        styles = ET.fromstring(archive.read("xl/styles.xml"))
+        dxfs = styles.find("s:dxfs", ns)
+        assert dxfs.attrib["count"] == "2" and len(dxfs) == 2
+        assert [dxf.find("s:fill/s:patternFill/s:fgColor", ns).attrib["rgb"] for dxf in dxfs] == ["FFFFC7CE", "FFC6EFCE"]
+        for i, expected_range in enumerate(("D2:D3", "D2:D2", "D2:D2"), 1):
+            sheet = ET.fromstring(archive.read(f"xl/worksheets/sheet{i}.xml"))
+            cf = sheet.find("s:conditionalFormatting", ns)
+            assert cf.attrib["sqref"] == expected_range
+            assert [rule.attrib["dxfId"] for rule in cf] == ["0", "1"]
+            assert [rule.attrib["operator"] for rule in cf] == ["equal", "equal"]
+            assert [rule.find("s:formula", ns).text for rule in cf] == ['"ausstehend"', '"erfolgt"']
+            validation = sheet.find("s:dataValidations/s:dataValidation", ns)
+            assert validation.attrib["type"] == "list" and validation.attrib["sqref"] == expected_range
+            assert validation.attrib["showDropDown"] == "0" and validation.attrib["errorStyle"] == "stop"
+            assert validation.find("s:formula1", ns).text == '"ausstehend,erfolgt"'
+            tags = [node.tag.rsplit("}", 1)[-1] for node in sheet]
+            assert tags.index("sheetData") < tags.index("conditionalFormatting") < tags.index("dataValidations") < tags.index("ignoredErrors")
+        inside = ET.fromstring(archive.read("xl/worksheets/sheet1.xml"))
+        assert inside.find('.//s:c[@r="D2"]/s:is/s:t', ns).text == "ausstehend"
+        assert inside.find('.//s:c[@r="D3"]/s:is/s:t', ns).text == "erfolgt"
+        assert inside.find('.//s:c[@r="E2"]/s:is/s:t', ns).text == "  Ä & < >\n=Text  "
+        assert inside.find('.//s:c[@r="E3"]/s:v', ns).text == "0"
+    print("OK  Synthetic XLSX independently verified with Python ZIP/XML parsers")
+
+
 def javascript():
     # Bundle actual application source, removing only module declarations.
     # Dynamic entry-point imports are replaced by the production test adapter.
-    files = ["src/core.js", "src/analysis-core.js", "src/analysis.js", "src/app.js"]
+    files = ["src/core.js", "src/analysis-core.js", "src/excel-export.js", "src/analysis.js", "src/app.js", "tests/excel-fixtures.js"]
     code = "\n".join(source(name) for name in files)
     code = re.sub(r"^import\s+[^;]+;\s*", "", code, flags=re.MULTILINE)
     boot = source("src/bootstrap.js").split("// The synthetic test page")[0]
     definitions = re.sub(r"^export\s+", "", code + "\n" + boot, flags=re.MULTILINE)
     tests = []
     for name in ("tests/core.test.js", "tests/analysis.test.js", "tests/building-flow.test.js",
-                 "tests/bootstrap.test.js", "tests/markers.test.js"):
+                 "tests/bootstrap.test.js", "tests/markers.test.js", "tests/excel-export.test.js"):
         code = re.sub(r"^import\s+[^;]+;\s*", "", source(name), flags=re.MULTILINE)
         tests.append("await (async () => {\n" + code + "\n})();")
     return r"""
 var __report = { finished: false, failure: '', nodes: {} };
 var globalThis = this;
+// Browser UTF-8 adapters, not replacements for ZIP or Excel application logic.
+class TextEncoder {
+  encode(value) { return Uint8Array.from(unescape(encodeURIComponent(value)), char => char.charCodeAt(0)); }
+}
+class TextDecoder {
+  decode(bytes) { return decodeURIComponent(escape(Array.from(bytes, byte => String.fromCharCode(byte)).join(''))); }
+}
 class AbortController {
   constructor() { this.signal = { aborted: false }; }
   abort() { this.signal.aborted = true; }
@@ -151,13 +196,14 @@ def main():
         else:
             raise RuntimeError("Synthetic checks exceeded the job limit")
         report = json.loads(string(evaluate("JSON.stringify(__report)")))
-        for name in ("results", "analysis-results", "building-flow-results", "bootstrap-results", "markers-results"):
+        for name in ("results", "analysis-results", "building-flow-results", "bootstrap-results", "markers-results", "excel-export-results"):
             print(report["nodes"].get(name, {}).get("textContent", "NO RESULT: " + name))
         if report["failure"]:
             raise RuntimeError(report["failure"])
         if any(report.get("results", {}).get(name) != "passed" for name in
-               ("testResult", "analysisTestResult", "buildingFlowTestResult", "bootstrapTestResult", "markersTestResult")):
+               ("testResult", "analysisTestResult", "buildingFlowTestResult", "bootstrapTestResult", "markersTestResult", "excelExportTestResult")):
             raise SystemExit(1)
+        validate_feedback_xlsx(json.loads(string(evaluate("JSON.stringify(globalThis.syntheticFeedbackXlsx)"))))
     finally:
         js.JsSetCurrentContext(None)
         js.JsDisposeRuntime(runtime)

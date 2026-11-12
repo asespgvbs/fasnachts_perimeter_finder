@@ -14,7 +14,7 @@ export function suggestField(fields, aliases) {
 }
 
 export const FIELD_NAMES = {
-  street: ['Strasse', 'Straße', 'Strassenname', 'street', 'street_name', 'strname', 'str_name', 'strbez'],
+  street: ['Strassenname', 'Strasse', 'Straße', 'street', 'street_name', 'strname', 'str_name', 'strbez'],
   house: ['Nummer', 'Hausnummer', 'Strassennummer', 'Nr', 'deinr', 'house_number', 'housenumber', 'hausnr', 'strnr'],
   zip: ['PLZ', 'Postleitzahl', 'postcode', 'postal_code', 'zip', 'dplz4', 'plz4'],
   comment: ['Kommentar', 'Bemerkung', 'comment'],
@@ -129,7 +129,7 @@ export function importWorkbook(workbook, XLSX) {
     const comment = suggestField(names, FIELD_NAMES.comment);
     return { header, rows, columns, comment: comment ? names.indexOf(comment) : -1 };
   }
-  throw new Error('Die erste Zeile eines Tabellenblatts muss die Spalten Strasse, Nummer und PLZ enthalten. Kommentar und weitere Spalten bleiben erhalten.');
+  throw new Error('Die erste Zeile eines Tabellenblatts muss die Spalten Strassenname, Nummer und PLZ enthalten. Kommentar und weitere Spalten bleiben erhalten.');
 }
 
 export function matchAddress(row, columns, index) {
@@ -284,14 +284,25 @@ export function classifyAddress(item, columns, index, area, buffer = null) {
 
 export function exportRows(imported, results, filter) {
   if (!['inside', 'outside', 'unresolved'].includes(filter)) throw new Error('Ungültiger Exportfilter.');
-  const header = [...imported.header];
+  const names = imported.header.map(value => String(value == null ? '' : value));
+  const columns = imported.columns || Object.fromEntries(['street', 'house', 'zip'].map(key => {
+    const name = suggestField(names, FIELD_NAMES[key]);
+    return [key, name ? names.indexOf(name) : -1];
+  }));
+  const address = [columns.street, columns.house, columns.zip];
+  if (address.some(index => index < 0) || new Set(address).size !== 3) throw new Error('Adressspalten für den Export fehlen.');
+  const feedback = names.map((name, index) => normalize(name) === normalize('Rückmeldung') ? index : -1).filter(index => index >= 0);
+  if (feedback.length > 1) throw new Error('Mehrere Spalten «Rückmeldung» gefunden. Bitte eindeutig benennen.');
+  const rest = imported.header.map((_, index) => index).filter(index => !address.includes(index) && !feedback.includes(index));
+  const header = [...address.map(index => imported.header[index]), feedback.length ? imported.header[feedback[0]] : 'Rückmeldung', ...rest.map(index => imported.header[index])];
   if (filter === 'unresolved') {
     let name = 'Klärungsgrund';
     while (header.includes(name)) name += '_';
     header.push(name);
   }
   const rows = results.filter(result => result.status === filter).map(result => {
-    const row = Array.from({ length: imported.header.length }, (_, index) => result.row[index] == null ? null : result.row[index]);
+    const value = index => result.row[index] == null ? null : result.row[index];
+    const row = [...address.map(value), feedback.length ? value(feedback[0]) : 'ausstehend', ...rest.map(value)];
     return filter === 'unresolved' ? [...row, result.reason] : row;
   });
   return { header, rows };

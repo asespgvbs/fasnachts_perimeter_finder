@@ -1,4 +1,5 @@
 import { buildAddressIndex, detectAddressMapping, importWorkbook, perimeterArea, classifyAddress, exportRows } from './analysis-core.js';
+import { saveFeedbackWorkbook } from './excel-export.js';
 
 const ADDRESS_URL = 'https://data.bs.ch/api/explore/v2.1/catalog/datasets/100259/exports/json?limit=-1';
 const pause = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -38,7 +39,8 @@ export function renderBuildingMarkers({ L, map, insideLayer, outsideLayer, trian
   return unique.size;
 }
 
-export function setupBuildingAnalysis(L, map, controls, { document, fetch } = globalThis) {
+export function setupBuildingAnalysis(L, map, controls, environment = globalThis) {
+  const { document, fetch } = environment;
   const $ = id => document.getElementById(id);
   const state = { XLSX: null, source: null, buffer: null,
     imported: null, filename: '', index: null, addressPromise: null, results: null, version: 0, busy: false, evaluating: false };
@@ -172,15 +174,16 @@ export function setupBuildingAnalysis(L, map, controls, { document, fetch } = gl
     if (!state.imported || state.results === null || state.busy || state.evaluating) return;
     try {
       const workbook = state.XLSX.utils.book_new();
-      const counts = [];
+      const counts = [], ranges = [];
       for (const [status, name] of [['inside', 'Innerhalb'], ['outside', 'Ausserhalb'], ['unresolved', 'Ungeklärt']]) {
         const data = exportRows(state.imported, state.results, status);
         const sheet = state.XLSX.utils.aoa_to_sheet([data.header, ...data.rows], { cellDates: true });
         state.XLSX.utils.book_append_sheet(workbook, sheet, name);
         counts.push(`${data.rows.length} ${name.toLowerCase()}`);
+        ranges.push({ column: 'D', rows: data.rows.length });
       }
-      state.XLSX.writeFile(workbook, 'fasnacht_perimeter_gebaeude.xlsx', { bookType: 'xlsx', compression: true });
-      message(`Gebäude-Zeilen exportiert: ${counts.join(', ')}. Drei Tabellenblätter mit allen Originalspalten einschliesslich Kommentar; ungeklärte Zeilen zusätzlich mit Klärungsgrund.`);
+      saveFeedbackWorkbook(state.XLSX, workbook, ranges, environment);
+      message(`Gebäude-Zeilen exportiert: ${counts.join(', ')}. Rückmeldung mit Dropdown: ausstehend (rot), erfolgt (grün). Weitere Originalspalten und Werte bleiben erhalten; ungeklärte Zeilen zusätzlich mit Klärungsgrund.`);
     } catch (error) { message(error.message || 'Excel-Export fehlgeschlagen.', true); }
   });
   buttons();

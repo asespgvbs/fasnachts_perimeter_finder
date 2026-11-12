@@ -1,5 +1,6 @@
 import { setupBuildingAnalysis } from '../src/analysis.js';
 import { startViewer } from '../src/app.js';
+import { syntheticWorkbookBytes } from './excel-fixtures.js';
 
 // Isolated UI, file, map and HTTP adapters. No real files, requests or libraries.
 const messages = [];
@@ -11,7 +12,7 @@ async function test(name, callback) {
 }
 function element() {
   return { textContent: '', hidden: false, open: false, disabled: false, value: '', files: [], handlers: {},
-    classList: { toggle() {}, add() {}, remove() {} }, append() {}, replaceChildren() {},
+    classList: { toggle() {}, add() {}, remove() {} }, append() {}, remove() {}, replaceChildren() {},
     addEventListener(name, callback) { this.handlers[name] = callback; }, click() { this.clicks = (this.clicks || 0) + 1; } };
 }
 function layer(children = []) {
@@ -34,7 +35,7 @@ function environment({ records, responseOK = true, badWorkbook = false, useViewe
   const nodes = Object.fromEntries(['analysis-status', 'excel-button', 'export-button', 'excel-input',
     'inside-count', 'outside-count', 'unresolved-count', 'unresolved-list', 'unresolved-panel',
     'file-button', 'file-input', 'status', 'tile-status', 'map', 'perimeter-offset', 'perimeter-offset-value'].map(id => [id, element()]));
-  const fakeDocument = { getElementById: id => nodes[id], createElement: element, createDocumentFragment: element };
+  const fakeDocument = { body: element(), getElementById: id => nodes[id], createElement: element, createDocumentFragment: element };
   const values = [['Strasse', 'Nummer', 'Plz', 'Kommentar'], ...(workbookRows || [['Kunstgasse', 1, 4000, 'synthetisch'], ['Kunstgasse', 2, 4000, 'synthetisch']])];
   const workbook = { SheetNames: ['Tabelle1'], Sheets: { Tabelle1: { '!ref': `A1:D${values.length}`, values } } };
   const exported = [];
@@ -42,7 +43,7 @@ function environment({ records, responseOK = true, badWorkbook = false, useViewe
     decode_range: () => ({ e: { r: values.length - 1, c: 3 } }), sheet_to_json: sheet => sheet.values,
     book_new: () => ({ SheetNames: [], Sheets: {} }), aoa_to_sheet: data => data,
     book_append_sheet(book, sheet, name) { book.SheetNames.push(name); book.Sheets[name] = sheet; },
-  }, writeFile(book) { exported.push(book); } };
+  }, write(book) { exported.push(book); return syntheticWorkbookBytes(book); } };
   let requests = 0, zooms = 0;
   const fetch = async () => {
     requests++;
@@ -62,7 +63,10 @@ function environment({ records, responseOK = true, badWorkbook = false, useViewe
     map: () => map, control: { layers: () => controls, scale: () => controls },
     tileLayer: () => Object.assign(layer(), { on() { return this; } }),
     geoJSON(geometry, options) { drawn.push(geometry); drawnStyles.push(options.style); return layer([Object.assign(layer(), { marker: true })]); } };
-  const dependencies = { document: fakeDocument, fetch, ResizeObserver: class { observe() {} } };
+  const downloads = [];
+  const dependencies = { document: fakeDocument, fetch, ResizeObserver: class { observe() {} },
+    Blob: class { constructor(parts) { this.parts = parts; } },
+    URL: { createObjectURL(blob) { downloads.push(blob.parts[0]); return 'blob:synthetic'; }, revokeObjectURL() {} } };
   const analysis = useViewer ? startViewer(L, dependencies).analysis : setupBuildingAnalysis(L, map, controls, dependencies);
   async function upload() {
     nodes['excel-input'].files = [{ name: 'synthetisch.xlsx', size: 100, arrayBuffer: async () => new ArrayBuffer(0) }];
@@ -77,7 +81,7 @@ function environment({ records, responseOK = true, badWorkbook = false, useViewe
     nodes['perimeter-offset'].handlers.input();
     await nodes['perimeter-offset'].handlers.change();
   }
-  return { nodes, analysis, XLSX, upload, loadPerimeter, setOffset, exported, markers, groups, drawn, drawnStyles, requests: () => requests, zooms: () => zooms };
+  return { nodes, analysis, XLSX, upload, loadPerimeter, setOffset, exported, downloads, markers, groups, drawn, drawnStyles, requests: () => requests, zooms: () => zooms };
 }
 
 await test('Vollständiger Ablauf: Knopf, offene 190-Punkte-CSV, GWR-Abgleich, Dreiecke, Export', async () => {
@@ -97,7 +101,8 @@ await test('Vollständiger Ablauf: Knopf, offene 190-Punkte-CSV, GWR-Abgleich, D
   assert(env.markers.length === 2 && env.markers.every(marker => marker.options.icon.html.includes('<svg')));
   assert(env.markers[0].options.icon.html.includes('#1aaa62') && env.markers[1].options.icon.html.includes('#dc3b30'));
   env.nodes['export-button'].handlers.click();
-  assert(env.exported[0].Sheets.Innerhalb.length === 2 && env.exported[0].Sheets.Innerhalb[1][3] === 'synthetisch');
+  assert(env.exported[0].Sheets.Innerhalb.length === 2 && env.exported[0].Sheets.Innerhalb[1][4] === 'synthetisch');
+  assert(env.downloads.length === 1, 'Vollständigen XLSX-Export mit Rückmeldungsregeln herunterladen');
 });
 
 await test('Offenes GeoJSON-Polygon schliessen und vorhandene Excel danach auswerten', async () => {
@@ -155,7 +160,7 @@ await test('Upload, GWR-Abgleich, Dreiecke und Export ohne GIS-Bibliothek', asyn
   assert(!env.nodes['export-button'].disabled);
   env.nodes['export-button'].handlers.click();
   assert(env.exported[0].Sheets.Innerhalb.length === 2, 'Kopfzeile und Innen-Adresse im Blatt Innerhalb');
-  assert(env.exported[0].Sheets.Innerhalb[1][3] === 'synthetisch', 'Kommentar erhalten');
+  assert(env.exported[0].Sheets.Innerhalb[1][4] === 'synthetisch', 'Kommentar erhalten');
 });
 
 await test('Ein Export enthält alle drei Kategorien vollständig, mit Originalreihenfolge, Duplikaten und Klärungsgründen', async () => {
@@ -172,14 +177,15 @@ await test('Ein Export enthält alle drei Kategorien vollständig, mit Originalr
   assert(env.exported.length === 1, 'Eine Datei pro Klick');
   const book = env.exported[0];
   assert(JSON.stringify(book.SheetNames) === JSON.stringify(['Innerhalb', 'Ausserhalb', 'Ungeklärt']));
-  const header = ['Strasse', 'Nummer', 'Plz', 'Kommentar'];
-  assert(JSON.stringify(book.Sheets.Innerhalb) === JSON.stringify([header, rows[1], rows[3]]));
-  assert(JSON.stringify(book.Sheets.Ausserhalb) === JSON.stringify([header, rows[0], rows[2]]));
+  const header = ['Strasse', 'Nummer', 'Plz', 'Rückmeldung', 'Kommentar'];
+  const withFeedback = row => [...row.slice(0, 3), 'ausstehend', ...row.slice(3)];
+  assert(JSON.stringify(book.Sheets.Innerhalb) === JSON.stringify([header, withFeedback(rows[1]), withFeedback(rows[3])]));
+  assert(JSON.stringify(book.Sheets.Ausserhalb) === JSON.stringify([header, withFeedback(rows[0]), withFeedback(rows[2])]));
   const unresolved = book.Sheets['Ungeklärt'];
   assert(JSON.stringify(unresolved[0]) === JSON.stringify([...header, 'Klärungsgrund']));
   assert(unresolved.length === 103, 'Alle ungeklärten Zeilen exportieren, unabhängig vom Anzeigelimit von 100');
-  assert(JSON.stringify(unresolved.slice(1).map(row => row.slice(0, 4))) === JSON.stringify(unknown));
-  assert(unresolved.slice(1).every(row => typeof row[4] === 'string' && row[4].length > 0));
+  assert(JSON.stringify(unresolved.slice(1).map(row => [...row.slice(0, 3), row[4]])) === JSON.stringify(unknown));
+  assert(unresolved.slice(1).every(row => row[3] === 'ausstehend' && typeof row[5] === 'string' && row[5].length > 0));
   assert(env.nodes['analysis-status'].textContent.includes('2 innerhalb, 2 ausserhalb, 102 ungeklärt'));
   env.markers[0].handlers.click(); env.markers[1].handlers.click();
   env.nodes['export-button'].handlers.click();
@@ -209,7 +215,7 @@ await test('Beliebig oft alle Gebäude umschalten: Farben, Ebenen, Popup, Zähle
     env.nodes['export-button'].handlers.click();
     assert(env.exported[i].Sheets.Innerhalb.length === 2 && env.exported[i].Sheets.Innerhalb[1][1] === (reversed ? 2 : 1));
     assert(env.exported[i].Sheets.Ausserhalb.length === 2 && env.exported[i].Sheets.Ausserhalb[1][1] === (reversed ? 1 : 2));
-    assert(env.exported[i].Sheets.Innerhalb[1][3] === 'synthetisch');
+    assert(env.exported[i].Sheets.Innerhalb[1][4] === 'synthetisch');
   }
   assert(env.requests() === 1 && env.zooms() === zooms && env.markers.length === 2);
 });
@@ -228,7 +234,7 @@ await test('Alle Excel-Zeilen desselben Gebäudepunkts gemeinsam umschalten, ung
   assert(env.nodes['unresolved-count'].textContent === '1');
   assert(env.markers[1].popup.textContent.includes('2 Excel-Zeile(n)'));
   env.nodes['export-button'].handlers.click();
-  assert(JSON.stringify(env.exported[0].Sheets.Innerhalb.slice(1).map(row => row[3])) === JSON.stringify(['Innen', 'Aussen A', 'Aussen B']));
+  assert(JSON.stringify(env.exported[0].Sheets.Innerhalb.slice(1).map(row => row[4])) === JSON.stringify(['Innen', 'Aussen A', 'Aussen B']));
   env.markers[1].handlers.click(); env.markers[0].handlers.click();
   assert(env.nodes['inside-count'].textContent === '0' && env.nodes['outside-count'].textContent === '3');
   env.nodes['export-button'].handlers.click();
@@ -305,7 +311,7 @@ await test('Fehlende Treffer erklären die leere Karte und öffnen die Klärungs
   const book = env.exported[0];
   assert(JSON.stringify(book.SheetNames) === JSON.stringify(['Innerhalb', 'Ausserhalb', 'Ungeklärt']));
   assert(book.Sheets.Innerhalb.length === 1 && book.Sheets.Ausserhalb.length === 1, 'Leere Kategorien behalten ihre Kopfzeile');
-  assert(book.Sheets['Ungeklärt'].length === 3 && book.Sheets['Ungeklärt'][1][4], 'Ungeklärte Zeilen mit Grund exportieren');
+  assert(book.Sheets['Ungeklärt'].length === 3 && book.Sheets['Ungeklärt'][1][5], 'Ungeklärte Zeilen mit Grund exportieren');
 });
 
 await test('Sobald SheetJS bereit ist, sofort ohne GIS-Ladephase auswerten', async () => {

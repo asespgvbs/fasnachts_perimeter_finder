@@ -15,12 +15,15 @@ PUBLIC_FILES = {
     "/src/core.js": ("src/core.js", "text/javascript; charset=utf-8"),
     "/src/analysis.js": ("src/analysis.js", "text/javascript; charset=utf-8"),
     "/src/analysis-core.js": ("src/analysis-core.js", "text/javascript; charset=utf-8"),
+    "/src/excel-export.js": ("src/excel-export.js", "text/javascript; charset=utf-8"),
     "/tests/index.html": ("tests/index.html", "text/html; charset=utf-8"),
     "/tests/core.test.js": ("tests/core.test.js", "text/javascript; charset=utf-8"),
     "/tests/analysis.test.js": ("tests/analysis.test.js", "text/javascript; charset=utf-8"),
     "/tests/building-flow.test.js": ("tests/building-flow.test.js", "text/javascript; charset=utf-8"),
     "/tests/bootstrap.test.js": ("tests/bootstrap.test.js", "text/javascript; charset=utf-8"),
     "/tests/markers.test.js": ("tests/markers.test.js", "text/javascript; charset=utf-8"),
+    "/tests/excel-fixtures.js": ("tests/excel-fixtures.js", "text/javascript; charset=utf-8"),
+    "/tests/excel-export.test.js": ("tests/excel-export.test.js", "text/javascript; charset=utf-8"),
 }
 
 OPTIONAL_ANALYSIS_FILES = {
