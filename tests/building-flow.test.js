@@ -40,8 +40,9 @@ function environment({ records, responseOK = true, badWorkbook = false, useViewe
   const exported = [];
   const XLSX = { read() { if (badWorkbook) throw new Error('synthetic read failure'); return workbook; }, utils: {
     decode_range: () => ({ e: { r: values.length - 1, c: 3 } }), sheet_to_json: sheet => sheet.values,
-    book_new: () => ({}), aoa_to_sheet: data => data, book_append_sheet(book, sheet) { book.sheet = sheet; },
-  }, writeFile(book) { exported.push(book.sheet); } };
+    book_new: () => ({ SheetNames: [], Sheets: {} }), aoa_to_sheet: data => data,
+    book_append_sheet(book, sheet, name) { book.SheetNames.push(name); book.Sheets[name] = sheet; },
+  }, writeFile(book) { exported.push(book); } };
   let requests = 0, zooms = 0;
   const fetch = async () => {
     requests++;
@@ -96,7 +97,7 @@ await test('Vollständiger Ablauf: Knopf, offene 190-Punkte-CSV, GWR-Abgleich, D
   assert(env.markers.length === 2 && env.markers.every(marker => marker.options.icon.html.includes('<svg')));
   assert(env.markers[0].options.icon.html.includes('#1aaa62') && env.markers[1].options.icon.html.includes('#dc3b30'));
   env.nodes['export-button'].handlers.click();
-  assert(env.exported[0].length === 2 && env.exported[0][1][3] === 'synthetisch');
+  assert(env.exported[0].Sheets.Innerhalb.length === 2 && env.exported[0].Sheets.Innerhalb[1][3] === 'synthetisch');
 });
 
 await test('Offenes GeoJSON-Polygon schliessen und vorhandene Excel danach auswerten', async () => {
@@ -130,7 +131,7 @@ await test('Regler aktualisiert Fläche, Gebäude und Export ohne erneuten GWR-D
   assert(env.drawnStyles[1].fillRule === 'nonzero' && env.drawnStyles[1].stroke === false);
   assert(env.nodes.status.textContent.includes('Erweiterung 50 m'));
   env.nodes['export-button'].handlers.click();
-  assert(env.exported[0].length === 3, 'Beide Zeilen aus dem erweiterten Perimeter exportieren');
+  assert(env.exported[0].Sheets.Innerhalb.length === 3, 'Beide Zeilen aus dem erweiterten Perimeter exportieren');
   const fifty = JSON.stringify(env.drawn[1]);
   await env.setOffset(250);
   await env.setOffset(50);
@@ -153,8 +154,40 @@ await test('Upload, GWR-Abgleich, Dreiecke und Export ohne GIS-Bibliothek', asyn
   assert(env.zooms() === 1, 'Gebäudemarker in den sichtbaren Kartenausschnitt nehmen');
   assert(!env.nodes['export-button'].disabled);
   env.nodes['export-button'].handlers.click();
-  assert(env.exported[0].length === 2, 'Nur Kopfzeile und Innen-Adresse exportieren');
-  assert(env.exported[0][1][3] === 'synthetisch', 'Kommentar erhalten');
+  assert(env.exported[0].Sheets.Innerhalb.length === 2, 'Kopfzeile und Innen-Adresse im Blatt Innerhalb');
+  assert(env.exported[0].Sheets.Innerhalb[1][3] === 'synthetisch', 'Kommentar erhalten');
+});
+
+await test('Ein Export enthält alle drei Kategorien vollständig, mit Originalreihenfolge, Duplikaten und Klärungsgründen', async () => {
+  const unknown = Array.from({ length: 102 }, (_, i) => ['Unbekannte Testgasse', i + 1, 4000, `Testkommentar ${i}`]);
+  const rows = [
+    ['Kunstgasse', 2, 4000, 'Aussen A'], ['Kunstgasse', 1, 4000, 'Innen A'],
+    ['Kunstgasse', 2, 4000, 'Aussen B'], ['Kunstgasse', 1, 4000, 'Innen B'], ...unknown,
+  ];
+  const before = JSON.stringify(rows), env = environment({ workbookRows: rows });
+  await env.analysis.setLibraries(env.XLSX);
+  await env.analysis.setPerimeter(perimeter);
+  await env.upload();
+  env.nodes['export-button'].handlers.click();
+  assert(env.exported.length === 1, 'Eine Datei pro Klick');
+  const book = env.exported[0];
+  assert(JSON.stringify(book.SheetNames) === JSON.stringify(['Innerhalb', 'Ausserhalb', 'Ungeklärt']));
+  const header = ['Strasse', 'Nummer', 'Plz', 'Kommentar'];
+  assert(JSON.stringify(book.Sheets.Innerhalb) === JSON.stringify([header, rows[1], rows[3]]));
+  assert(JSON.stringify(book.Sheets.Ausserhalb) === JSON.stringify([header, rows[0], rows[2]]));
+  const unresolved = book.Sheets['Ungeklärt'];
+  assert(JSON.stringify(unresolved[0]) === JSON.stringify([...header, 'Klärungsgrund']));
+  assert(unresolved.length === 103, 'Alle ungeklärten Zeilen exportieren, unabhängig vom Anzeigelimit von 100');
+  assert(JSON.stringify(unresolved.slice(1).map(row => row.slice(0, 4))) === JSON.stringify(unknown));
+  assert(unresolved.slice(1).every(row => typeof row[4] === 'string' && row[4].length > 0));
+  assert(env.nodes['analysis-status'].textContent.includes('2 innerhalb, 2 ausserhalb, 102 ungeklärt'));
+  env.markers[0].handlers.click(); env.markers[1].handlers.click();
+  env.nodes['export-button'].handlers.click();
+  const changed = env.exported[1];
+  assert(JSON.stringify(changed.Sheets.Innerhalb) === JSON.stringify(book.Sheets.Ausserhalb));
+  assert(JSON.stringify(changed.Sheets.Ausserhalb) === JSON.stringify(book.Sheets.Innerhalb));
+  assert(JSON.stringify(changed.Sheets['Ungeklärt']) === JSON.stringify(unresolved));
+  assert(JSON.stringify(rows) === before, 'Originalzeilen unverändert erhalten');
 });
 
 await test('Beliebig oft alle Gebäude umschalten: Farben, Ebenen, Popup, Zähler und Export folgen', async () => {
@@ -171,11 +204,12 @@ await test('Beliebig oft alle Gebäude umschalten: Farben, Ebenen, Popup, Zähle
     assert(env.groups[0].children.length === 1 && env.groups[0].children[0] === (reversed ? outside : inside));
     assert(env.groups[1].children.length === 1 && env.groups[1].children[0] === (reversed ? inside : outside));
     assert(outside.options.title === (reversed ? 'Gebäude innerhalb' : 'Gebäude ausserhalb'));
-    assert(outside.popup.textContent.includes(reversed ? 'Innerhalb · im Export enthalten' : 'Ausserhalb · vom Export ausgeschlossen'));
+    assert(outside.popup.textContent.includes(reversed ? 'Innerhalb · Tabellenblatt «Innerhalb»' : 'Ausserhalb · Tabellenblatt «Ausserhalb»'));
     assert(env.nodes['inside-count'].textContent === '1' && env.nodes['outside-count'].textContent === '1');
     env.nodes['export-button'].handlers.click();
-    assert(env.exported[i].length === 2 && env.exported[i][1][1] === (reversed ? 2 : 1));
-    assert(env.exported[i][1][3] === 'synthetisch');
+    assert(env.exported[i].Sheets.Innerhalb.length === 2 && env.exported[i].Sheets.Innerhalb[1][1] === (reversed ? 2 : 1));
+    assert(env.exported[i].Sheets.Ausserhalb.length === 2 && env.exported[i].Sheets.Ausserhalb[1][1] === (reversed ? 1 : 2));
+    assert(env.exported[i].Sheets.Innerhalb[1][3] === 'synthetisch');
   }
   assert(env.requests() === 1 && env.zooms() === zooms && env.markers.length === 2);
 });
@@ -194,11 +228,11 @@ await test('Alle Excel-Zeilen desselben Gebäudepunkts gemeinsam umschalten, ung
   assert(env.nodes['unresolved-count'].textContent === '1');
   assert(env.markers[1].popup.textContent.includes('2 Excel-Zeile(n)'));
   env.nodes['export-button'].handlers.click();
-  assert(JSON.stringify(env.exported[0].slice(1).map(row => row[3])) === JSON.stringify(['Innen', 'Aussen A', 'Aussen B']));
+  assert(JSON.stringify(env.exported[0].Sheets.Innerhalb.slice(1).map(row => row[3])) === JSON.stringify(['Innen', 'Aussen A', 'Aussen B']));
   env.markers[1].handlers.click(); env.markers[0].handlers.click();
   assert(env.nodes['inside-count'].textContent === '0' && env.nodes['outside-count'].textContent === '3');
   env.nodes['export-button'].handlers.click();
-  assert(env.exported[1].length === 1, 'Leere Auswahl exportiert nur die Kopfzeile');
+  assert(env.exported[1].Sheets.Innerhalb.length === 1, 'Leere Kategorie enthält nur die Kopfzeile');
 });
 
 await test('Bufferbedienung verwirft manuelle Auswahl und klassifiziert anhand der aktuellen Erweiterung', async () => {
@@ -213,11 +247,11 @@ await test('Bufferbedienung verwirft manuelle Auswahl und klassifiziert anhand d
   assert(env.nodes['inside-count'].textContent === '0');
   await env.setOffset(50);
   assert(env.nodes['inside-count'].textContent === '2' && env.nodes['outside-count'].textContent === '0');
-  env.nodes['export-button'].handlers.click(); assert(env.exported[0].length === 3);
+  env.nodes['export-button'].handlers.click(); assert(env.exported[0].Sheets.Innerhalb.length === 3);
   env.markers[3].handlers.click();
   await env.setOffset(0);
   assert(env.nodes['inside-count'].textContent === '1' && env.nodes['outside-count'].textContent === '1');
-  env.nodes['export-button'].handlers.click(); assert(env.exported[1][1][1] === 1);
+  env.nodes['export-button'].handlers.click(); assert(env.exported[1].Sheets.Innerhalb[1][1] === 1);
   assert(env.requests() === 1);
 });
 
@@ -231,13 +265,13 @@ await test('Perimeter- und Gebäudeimport setzen Auswahl zurück; alte Marker k�
   const shifted = { type: 'Polygon', coordinates: [ring.map(([lon, lat]) => [lon + .02, lat])] };
   await env.loadPerimeter('anderer-testperimeter.geojson', JSON.stringify(shifted));
   assert(env.nodes['inside-count'].textContent === '1');
-  env.nodes['export-button'].handlers.click(); assert(env.exported[0][1][1] === 2, 'Neuer Perimeter bestimmt die tatsächliche Auswahl');
+  env.nodes['export-button'].handlers.click(); assert(env.exported[0].Sheets.Innerhalb[1][1] === 2, 'Neuer Perimeter bestimmt die tatsächliche Auswahl');
   oldOutside.handlers.click();
   assert(env.nodes['inside-count'].textContent === '1', 'Entfernte Marker ignorieren');
   env.markers[2].handlers.click(); assert(env.nodes['inside-count'].textContent === '2');
   await env.upload();
   assert(env.nodes['inside-count'].textContent === '1' && env.nodes['outside-count'].textContent === '1');
-  env.nodes['export-button'].handlers.click(); assert(env.exported[1][1][1] === 2);
+  env.nodes['export-button'].handlers.click(); assert(env.exported[1].Sheets.Innerhalb[1][1] === 2);
 });
 
 await test('Neuer Seitenstart übernimmt keine manuellen Änderungen', async () => {
@@ -252,7 +286,7 @@ await test('Neuer Seitenstart übernimmt keine manuellen Änderungen', async () 
   await fresh.loadPerimeter('synthetisch.geojson', JSON.stringify(perimeter));
   await fresh.upload();
   assert(fresh.nodes['inside-count'].textContent === '1' && fresh.nodes['outside-count'].textContent === '1');
-  fresh.nodes['export-button'].handlers.click(); assert(fresh.exported[0][1][1] === 1);
+  fresh.nodes['export-button'].handlers.click(); assert(fresh.exported[0].Sheets.Innerhalb[1][1] === 1);
 });
 
 await test('Fehlende Treffer erklären die leere Karte und öffnen die Klärungsliste', async () => {
@@ -266,6 +300,12 @@ await test('Fehlende Treffer erklären die leere Karte und öffnen die Klärungs
   assert(env.nodes['unresolved-panel'].open && !env.nodes['unresolved-panel'].hidden);
   assert(env.nodes['analysis-status'].textContent.includes('deshalb erscheinen keine Gebäudemarker'));
   assert(env.zooms() === 0);
+  assert(!env.nodes['export-button'].disabled, 'Auch ausschliesslich ungeklärte Ergebnisse exportieren');
+  env.nodes['export-button'].handlers.click();
+  const book = env.exported[0];
+  assert(JSON.stringify(book.SheetNames) === JSON.stringify(['Innerhalb', 'Ausserhalb', 'Ungeklärt']));
+  assert(book.Sheets.Innerhalb.length === 1 && book.Sheets.Ausserhalb.length === 1, 'Leere Kategorien behalten ihre Kopfzeile');
+  assert(book.Sheets['Ungeklärt'].length === 3 && book.Sheets['Ungeklärt'][1][4], 'Ungeklärte Zeilen mit Grund exportieren');
 });
 
 await test('Sobald SheetJS bereit ist, sofort ohne GIS-Ladephase auswerten', async () => {

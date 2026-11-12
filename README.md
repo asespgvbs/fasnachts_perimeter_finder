@@ -6,16 +6,18 @@
    auswählen. Die App gleicht die Adressen mit dem amtlichen GWR-Adressbestand ab.
 3. **Auswahl anpassen:** Auf ein Gebäudedreieck klicken, um zwischen innerhalb
    und ausserhalb zu wechseln. Beliebig oft und für jedes gefundene Gebäude möglich.
-4. **Perimeter-Gebäude exportieren:** Excel mit den aktuell als innerhalb
-   markierten Zeilen, einschliesslich aller ursprünglichen Spalten und Kommentare.
+4. **Alle Kategorien exportieren:** Eine Excel-Datei mit den Tabellenblättern
+   **Innerhalb**, **Ausserhalb** und **Ungeklärt**, einschliesslich aller
+   ursprünglichen Spalten und Kommentare. Ungeklärte Zeilen enthalten zusätzlich
+   den Klärungsgrund. Leere Kategorien erhalten ein Blatt mit Kopfzeile.
 
 Gefundene Gebäude erscheinen als **Dreiecke**: grün innerhalb, rot ausserhalb.
 Der Kartenausschnitt wird auf die Treffer gesetzt. Nicht zuordenbare Adressen
 stehen mit dem Grund in der Klärungsliste; sie bekommen keine erfundene Position.
 
 Ein Klick auf ein Dreieck wechselt dessen Status, Farbe, Gebäudeebene und
-Exportauswahl; die Zähler und das Popup werden sofort aktualisiert. So lassen
-sich ausserhalb liegende Gebäude einschliessen und innerhalb liegende ausschliessen.
+Tabellenblatt im Export; die Zähler und das Popup werden sofort aktualisiert.
+So lassen sich Gebäude zwischen «Innerhalb» und «Ausserhalb» verschieben.
 Alle Excel-Zeilen desselben Adresspunkts wechseln gemeinsam. Ein weiterer Klick
 wechselt den Status zurück, ohne den Kartenausschnitt zu verändern.
 
@@ -73,13 +75,16 @@ her. Bei Auswahl eines anderen Perimeters bleibt der eingestellte Meterwert akti
   Maximal 50’000 Datenzeilen und 256 Spalten. Leerzeilen werden ignoriert.
 - Zähler und Export zählen Excel-Zeilen einschliesslich Duplikaten.
   Derselbe Adresspunkt wird nur einmal markiert. Klick wechselt den Status und
-  zeigt Adresse, Kommentar und aktuelle Exportauswahl.
+  zeigt Adresse, Kommentar und das aktuelle Tabellenblatt im Export.
 - Beim Perimeterwechsel werden bereits importierte Gebäude neu ausgewertet.
   Ein fehlerhafter Dateiimport behält den bisherigen Stand.
-- Der Export enthält nur die Innen-Zeilen in ursprünglicher Reihenfolge,
-  mit sämtlichen ursprünglichen Spalten. Formatierungen, Makros und weitere
-  Tabellenblätter werden nicht übernommen; Formeln werden als gespeicherte Werte
-  behandelt.
+- Der Export enthält alle Zeilen nach aktuellem Status getrennt in den Blättern
+  «Innerhalb», «Ausserhalb» und «Ungeklärt». Innerhalb jedes Blatts bleiben die
+  ursprüngliche Reihenfolge, Duplikate und sämtliche Originalspalten erhalten.
+  Das Blatt «Ungeklärt» enthält zusätzlich den Klärungsgrund und immer alle
+  ungeklärten Zeilen, auch wenn die Oberfläche nur die ersten 100 zeigt.
+  Formatierungen, Makros und weitere Tabellenblätter der Quelldatei werden nicht
+  übernommen; Formeln werden als gespeicherte Werte behandelt.
 
 ## Adressabgleich und Browserbibliotheken
 
@@ -121,7 +126,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 python tests/run_loader_checks.py
 ```
 
-**73 JavaScript-Tests und acht Python-Tests bestehen.** Der optionale
+**74 JavaScript-Tests und acht Python-Tests bestehen.** Der optionale
 JavaScript-Läufer verwendet unter Windows die bereits vorhandene `Chakra.dll`.
 Er bündelt den tatsächlichen Anwendungsquellcode, ohne dessen Logik zu ersetzen.
 Nur Browser-, Datei-, Modul- und HTTP-Zugriffe sowie Timer sind synthetische Adapter;
@@ -136,6 +141,8 @@ einschliesslich Gebäudezuordnung und Export ohne erneuten Adressdownload.
 Ebenfalls geprüft: wiederholtes Umschalten aller Marker, gemeinsame Auswahl
 mehrfach vorhandener Excel-Zeilen, Farben, Gebäudeebenen, Popup und Export sowie
 das Zurücksetzen bei Bufferbedienung, Perimeter-/Gebäudeimport und neuem Seitenstart.
+Der Export wird mit allen drei Tabellenblättern, leeren Kategorien, manuellen
+Statuswechseln und mehr als 100 ungeklärten Zeilen einschliesslich Klärungsgründen geprüft.
 Die gleichen Tests stehen unter **http://127.0.0.1:8000/tests/index.html** bereit.
 
 Es wurden keine echten Datendateien, Geheimnisse oder Live-Dienste abgefragt,
@@ -148,5 +155,5 @@ Live-Verfügbarkeit und Feldstruktur des GWR-Dienstes sind damit nicht bestätig
 cd C:\dev\repos\fasnacht_perimeter_check
 git add -- README.md index.html src/analysis.js tests/building-flow.test.js
 git diff --cached
-git commit -m "Allow toggling building inclusion by clicking map markers"
+git commit -m "Export all building categories to separate Excel worksheets"
 ```

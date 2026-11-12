@@ -14,7 +14,7 @@
     <div class="actions">
       <button id="file-button" type="button" disabled>Perimeter laden</button>
       <button id="excel-button" type="button" disabled>Gebäude importieren</button>
-      <button id="export-button" type="button" disabled>Perimeter-Gebäude exportieren</button>
+      <button id="export-button" type="button" disabled>Alle Kategorien exportieren</button>
       <input id="file-input" type="file" accept=".csv,.geojson,.gjson,.json,text/csv,application/geo+json,application/json" hidden>
       <input id="excel-input" type="file" accept=".xlsx,.xls" hidden>
     </div>
@@ -27,7 +27,7 @@
     </div>
     <p id="analysis-status" role="status" aria-live="polite">Gebäude-Excel über «Gebäude importieren» auswählen.</p>
     <span class="counts" aria-live="polite"><span class="inside">▲ Innerhalb: <strong id="inside-count">–</strong></span><span class="outside">▲ Ausserhalb: <strong id="outside-count">–</strong></span><span>Ungeklärt: <strong id="unresolved-count">–</strong></span></span>
-    <p>Klick auf ein Gebäudedreieck wechselt zwischen innerhalb und ausserhalb und passt die Excel-Exportauswahl an. Bufferregler, Seitenreload oder ein neuer Perimeter-/Gebäudeimport setzen die manuelle Auswahl zurück.</p>
+    <p>Der Excel-Export enthält die Tabellenblätter «Innerhalb», «Ausserhalb» und «Ungeklärt». Klick auf ein Gebäudedreieck wechselt zwischen innerhalb und ausserhalb und verschiebt es im Export ins entsprechende Tabellenblatt. Bufferregler, Seitenreload oder ein neuer Perimeter-/Gebäudeimport setzen die manuelle Zuordnung zurück.</p>
     <details id="unresolved-panel" hidden><summary>Nicht zugeordnete Adressen anzeigen</summary><div id="unresolved-list"></div></details>
   </section>
   <main id="map" aria-label="Karte Basel mit GeoBS-Grundkarte"></main>

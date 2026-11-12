@@ -80,11 +80,11 @@ export function setupBuildingAnalysis(L, map, controls, { document, fetch } = gl
       if (state.busy || state.evaluating || state.results !== results) return false;
       for (const member of members) member.status = next;
       updateCounts();
-      message(`Gebäudestatus geändert: ${members.length} Excel-Zeile(n) ${next === 'inside' ? 'innerhalb (im Export enthalten)' : 'ausserhalb (vom Export ausgeschlossen)'}. Erneutes Klicken wechselt den Status zurück.`);
+      message(`Gebäudestatus geändert: ${members.length} Excel-Zeile(n) im Tabellenblatt «${next === 'inside' ? 'Innerhalb' : 'Ausserhalb'}». Erneutes Klicken wechselt den Status zurück.`);
     }, popup(result) {
       const popup = document.createElement('div'); popup.className = 'building-popup';
       const comment = state.imported.comment;
-      popup.textContent = `${address(result.row)}\n${result.status === 'inside' ? 'Innerhalb · im Export enthalten' : 'Ausserhalb · vom Export ausgeschlossen'} · ${result.count} Excel-Zeile(n)${comment >= 0 && result.row[comment] != null ? `\nKommentar: ${result.row[comment]}` : ''}\nErneut auf das Dreieck klicken: Status wechseln.`;
+      popup.textContent = `${address(result.row)}\n${result.status === 'inside' ? 'Innerhalb · Tabellenblatt «Innerhalb»' : 'Ausserhalb · Tabellenblatt «Ausserhalb»'} · ${result.count} Excel-Zeile(n)${comment >= 0 && result.row[comment] != null ? `\nKommentar: ${result.row[comment]}` : ''}\nErneut auf das Dreieck klicken: Status wechseln.`;
       return popup;
     } });
     const fragment = document.createDocumentFragment();
@@ -99,7 +99,7 @@ export function setupBuildingAnalysis(L, map, controls, { document, fetch } = gl
     $('unresolved-panel').open = noMatches;
     message(noMatches
       ? 'Keine Adresse konnte eindeutig zugeordnet werden; deshalb erscheinen keine Gebäudemarker. Details stehen unter «Nicht zugeordnete Adressen anzeigen». Strasse, Hausnummer und PLZ prüfen.'
-      : `Adressabgleich abgeschlossen. Grüne Dreiecke: innerhalb, rote Dreiecke: ausserhalb. Klick auf ein Dreieck wechselt Status und Exportauswahl. Export enthält nur Gebäude innerhalb.${unresolved.length > 100 ? ' Die ersten 100 ungeklärten Zeilen werden angezeigt.' : ''}`);
+      : `Adressabgleich abgeschlossen. Grüne Dreiecke: innerhalb, rote Dreiecke: ausserhalb. Klick auf ein Dreieck wechselt Status und Tabellenblatt im Export. Export enthält alle drei Kategorien in separaten Tabellenblättern.${unresolved.length > 100 ? ' Die ersten 100 ungeklärten Zeilen werden angezeigt.' : ''}`);
   }
   async function addressIndex() {
     if (state.index) return state.index;
@@ -171,12 +171,16 @@ export function setupBuildingAnalysis(L, map, controls, { document, fetch } = gl
   $('export-button').addEventListener('click', () => {
     if (!state.imported || state.results === null || state.busy || state.evaluating) return;
     try {
-      const data = exportRows(state.imported, state.results, 'inside');
       const workbook = state.XLSX.utils.book_new();
-      const sheet = state.XLSX.utils.aoa_to_sheet([data.header, ...data.rows], { cellDates: true });
-      state.XLSX.utils.book_append_sheet(workbook, sheet, 'Perimeter-Gebäude');
+      const counts = [];
+      for (const [status, name] of [['inside', 'Innerhalb'], ['outside', 'Ausserhalb'], ['unresolved', 'Ungeklärt']]) {
+        const data = exportRows(state.imported, state.results, status);
+        const sheet = state.XLSX.utils.aoa_to_sheet([data.header, ...data.rows], { cellDates: true });
+        state.XLSX.utils.book_append_sheet(workbook, sheet, name);
+        counts.push(`${data.rows.length} ${name.toLowerCase()}`);
+      }
       state.XLSX.writeFile(workbook, 'fasnacht_perimeter_gebaeude.xlsx', { bookType: 'xlsx', compression: true });
-      message(`${data.rows.length} Gebäude-Zeilen innerhalb exportiert, mit allen Originalspalten einschliesslich Kommentar.`);
+      message(`Gebäude-Zeilen exportiert: ${counts.join(', ')}. Drei Tabellenblätter mit allen Originalspalten einschliesslich Kommentar; ungeklärte Zeilen zusätzlich mit Klärungsgrund.`);
     } catch (error) { message(error.message || 'Excel-Export fehlgeschlagen.', true); }
   });
   buttons();
