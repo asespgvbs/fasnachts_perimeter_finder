@@ -3,19 +3,32 @@ import { buildAddressIndex, detectAddressMapping, importWorkbook, perimeterArea,
 const ADDRESS_URL = 'https://data.bs.ch/api/explore/v2.1/catalog/datasets/100259/exports/json?limit=-1';
 const pause = () => new Promise(resolve => setTimeout(resolve, 0));
 
-export function renderBuildingMarkers({ L, map, insideLayer, outsideLayer, triangle, results, popup, fitView = true }) {
+export function renderBuildingMarkers({ L, map, insideLayer, outsideLayer, triangle, results, popup, onToggle, fitView = true }) {
   const unique = new Map();
   for (const result of results) {
     if (result.status === 'unresolved') continue;
     const key = JSON.stringify(result.coordinates), existing = unique.get(key);
-    if (existing) existing.count++;
-    else unique.set(key, Object.assign({}, result, { count: 1 }));
+    if (existing) { existing.count++; existing.members.push(result); }
+    else unique.set(key, Object.assign({}, result, { count: 1, members: [result] }));
   }
   for (const result of unique.values()) {
     const [lon, lat] = result.coordinates, inside = result.status === 'inside';
     const marker = L.marker([lat, lon], { icon: inside ? triangle.inside : triangle.outside,
       title: inside ? 'Gebäude innerhalb' : 'Gebäude ausserhalb', keyboard: true });
     marker.bindPopup(popup(result)).addTo(inside ? insideLayer : outsideLayer);
+    if (onToggle) marker.on('click', () => {
+      const next = result.status === 'inside' ? 'outside' : 'inside';
+      if (onToggle(result.members, next) === false) return;
+      const previousLayer = result.status === 'inside' ? insideLayer : outsideLayer;
+      const nextLayer = next === 'inside' ? insideLayer : outsideLayer;
+      result.status = next;
+      previousLayer.removeLayer(marker);
+      marker.options.title = next === 'inside' ? 'Gebäude innerhalb' : 'Gebäude ausserhalb';
+      marker.setIcon(triangle[next]);
+      marker.setPopupContent(popup(result));
+      nextLayer.addLayer(marker);
+      marker.openPopup();
+    });
   }
   // An import should reveal its results even if these overlays were hidden earlier.
   insideLayer.addTo(map); outsideLayer.addTo(map);
@@ -55,13 +68,23 @@ export function setupBuildingAnalysis(L, map, controls, { document, fetch } = gl
     const c = state.imported.columns;
     return `${row[c.street] == null ? '' : row[c.street]} ${row[c.house] == null ? '' : row[c.house]}, ${row[c.zip] == null ? '' : row[c.zip]}`.trim();
   }
-  function renderResults(fitView) {
+  function updateCounts() {
     for (const kind of ['inside', 'outside', 'unresolved']) $(kind + '-count').textContent = state.results.filter(result => result.status === kind).length.toLocaleString('de-CH');
+  }
+  function renderResults(fitView) {
+    const results = state.results;
+    updateCounts();
     const unresolved = state.results.filter(result => result.status === 'unresolved');
-    renderBuildingMarkers({ L, map, insideLayer, outsideLayer, triangle, results: state.results, fitView, popup(result) {
+    renderBuildingMarkers({ L, map, insideLayer, outsideLayer, triangle, results, fitView, onToggle(members, next) {
+      // Only change the current evaluation, never markers from a previous import.
+      if (state.busy || state.evaluating || state.results !== results) return false;
+      for (const member of members) member.status = next;
+      updateCounts();
+      message(`Gebäudestatus geändert: ${members.length} Excel-Zeile(n) ${next === 'inside' ? 'innerhalb (im Export enthalten)' : 'ausserhalb (vom Export ausgeschlossen)'}. Erneutes Klicken wechselt den Status zurück.`);
+    }, popup(result) {
       const popup = document.createElement('div'); popup.className = 'building-popup';
       const comment = state.imported.comment;
-      popup.textContent = `${address(result.row)}\n${result.status === 'inside' ? 'Innerhalb' : 'Ausserhalb'} · ${result.count} Excel-Zeile(n)${comment >= 0 && result.row[comment] != null ? `\nKommentar: ${result.row[comment]}` : ''}`;
+      popup.textContent = `${address(result.row)}\n${result.status === 'inside' ? 'Innerhalb · im Export enthalten' : 'Ausserhalb · vom Export ausgeschlossen'} · ${result.count} Excel-Zeile(n)${comment >= 0 && result.row[comment] != null ? `\nKommentar: ${result.row[comment]}` : ''}\nErneut auf das Dreieck klicken: Status wechseln.`;
       return popup;
     } });
     const fragment = document.createDocumentFragment();
@@ -76,7 +99,7 @@ export function setupBuildingAnalysis(L, map, controls, { document, fetch } = gl
     $('unresolved-panel').open = noMatches;
     message(noMatches
       ? 'Keine Adresse konnte eindeutig zugeordnet werden; deshalb erscheinen keine Gebäudemarker. Details stehen unter «Nicht zugeordnete Adressen anzeigen». Strasse, Hausnummer und PLZ prüfen.'
-      : `Adressabgleich abgeschlossen. Grüne Dreiecke: innerhalb, rote Dreiecke: ausserhalb. Export enthält nur Gebäude innerhalb.${unresolved.length > 100 ? ' Die ersten 100 ungeklärten Zeilen werden angezeigt.' : ''}`);
+      : `Adressabgleich abgeschlossen. Grüne Dreiecke: innerhalb, rote Dreiecke: ausserhalb. Klick auf ein Dreieck wechselt Status und Exportauswahl. Export enthält nur Gebäude innerhalb.${unresolved.length > 100 ? ' Die ersten 100 ungeklärten Zeilen werden angezeigt.' : ''}`);
   }
   async function addressIndex() {
     if (state.index) return state.index;

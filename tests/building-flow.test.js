@@ -16,8 +16,11 @@ function element() {
 }
 function layer(children = []) {
   return { children: [...children], addTo(target) { if (target.addLayer) target.addLayer(this); return this; },
-    addLayer(child) { this.children.push(child); }, removeLayer() {}, clearLayers() { this.children = []; },
-    bindPopup() { return this; }, getBounds() {
+    addLayer(child) { this.children.push(child); }, removeLayer(child) { this.children = this.children.filter(item => item !== child); }, clearLayers() { this.children = []; },
+    handlers: {}, on(name, callback) { this.handlers[name] = callback; return this; },
+    bindPopup(value) { this.popup = value; return this; },
+    setPopupContent(value) { this.popup = value; return this; }, openPopup() { this.popupOpen = true; return this; },
+    setIcon(icon) { this.options.icon = icon; return this; }, getBounds() {
       let valid = this.children.some(child => child.marker || child.getBounds().isValid());
       return { isValid: () => valid, extend(other) { valid = valid || other.isValid(); return this; } };
     } };
@@ -27,16 +30,16 @@ const perimeter = { type: 'FeatureCollection', features: [
   { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } },
 ] };
 
-function environment({ records, responseOK = true, badWorkbook = false, useViewer = false } = {}) {
+function environment({ records, responseOK = true, badWorkbook = false, useViewer = false, workbookRows } = {}) {
   const nodes = Object.fromEntries(['analysis-status', 'excel-button', 'export-button', 'excel-input',
     'inside-count', 'outside-count', 'unresolved-count', 'unresolved-list', 'unresolved-panel',
     'file-button', 'file-input', 'status', 'tile-status', 'map', 'perimeter-offset', 'perimeter-offset-value'].map(id => [id, element()]));
   const fakeDocument = { getElementById: id => nodes[id], createElement: element, createDocumentFragment: element };
-  const values = [['Strasse', 'Nummer', 'Plz', 'Kommentar'], ['Kunstgasse', 1, 4000, 'synthetisch'], ['Kunstgasse', 2, 4000, 'synthetisch']];
-  const workbook = { SheetNames: ['Tabelle1'], Sheets: { Tabelle1: { '!ref': 'A1:D3', values } } };
+  const values = [['Strasse', 'Nummer', 'Plz', 'Kommentar'], ...(workbookRows || [['Kunstgasse', 1, 4000, 'synthetisch'], ['Kunstgasse', 2, 4000, 'synthetisch']])];
+  const workbook = { SheetNames: ['Tabelle1'], Sheets: { Tabelle1: { '!ref': `A1:D${values.length}`, values } } };
   const exported = [];
   const XLSX = { read() { if (badWorkbook) throw new Error('synthetic read failure'); return workbook; }, utils: {
-    decode_range: () => ({ e: { r: 2, c: 3 } }), sheet_to_json: sheet => sheet.values,
+    decode_range: () => ({ e: { r: values.length - 1, c: 3 } }), sheet_to_json: sheet => sheet.values,
     book_new: () => ({}), aoa_to_sheet: data => data, book_append_sheet(book, sheet) { book.sheet = sheet; },
   }, writeFile(book) { exported.push(book.sheet); } };
   let requests = 0, zooms = 0;
@@ -47,14 +50,14 @@ function environment({ records, responseOK = true, badWorkbook = false, useViewe
       { strname: 'Kunstgasse', deinr: 2, dplz4: 4000, geo_point_2d: { lon: 7.62, lat: 47.55 } },
     ] };
   };
-  const markers = [], drawn = [], drawnStyles = [];
+  const markers = [], drawn = [], drawnStyles = [], groups = [];
   const marker = (coordinates, options) => {
     const result = Object.assign(layer(), { marker: true, coordinates, options });
     markers.push(result); return result;
   };
   const map = { setView() { return this; }, fitBounds() { zooms++; }, addLayer() {}, removeLayer() {}, hasLayer() { return true; }, invalidateSize() {} };
   const controls = { addOverlay() {}, addBaseLayer() {}, removeLayer() {}, addTo() { return this; } };
-  const L = { featureGroup: layer, divIcon: options => options, circleMarker: marker, marker, CRS: { EPSG3857: {} },
+  const L = { featureGroup() { const group = layer(); groups.push(group); return group; }, divIcon: options => options, circleMarker: marker, marker, CRS: { EPSG3857: {} },
     map: () => map, control: { layers: () => controls, scale: () => controls },
     tileLayer: () => Object.assign(layer(), { on() { return this; } }),
     geoJSON(geometry, options) { drawn.push(geometry); drawnStyles.push(options.style); return layer([Object.assign(layer(), { marker: true })]); } };
@@ -73,7 +76,7 @@ function environment({ records, responseOK = true, badWorkbook = false, useViewe
     nodes['perimeter-offset'].handlers.input();
     await nodes['perimeter-offset'].handlers.change();
   }
-  return { nodes, analysis, XLSX, upload, loadPerimeter, setOffset, exported, markers, drawn, drawnStyles, requests: () => requests, zooms: () => zooms };
+  return { nodes, analysis, XLSX, upload, loadPerimeter, setOffset, exported, markers, groups, drawn, drawnStyles, requests: () => requests, zooms: () => zooms };
 }
 
 await test('Vollständiger Ablauf: Knopf, offene 190-Punkte-CSV, GWR-Abgleich, Dreiecke, Export', async () => {
@@ -152,6 +155,104 @@ await test('Upload, GWR-Abgleich, Dreiecke und Export ohne GIS-Bibliothek', asyn
   env.nodes['export-button'].handlers.click();
   assert(env.exported[0].length === 2, 'Nur Kopfzeile und Innen-Adresse exportieren');
   assert(env.exported[0][1][3] === 'synthetisch', 'Kommentar erhalten');
+});
+
+await test('Beliebig oft alle Gebäude umschalten: Farben, Ebenen, Popup, Zähler und Export folgen', async () => {
+  const env = environment();
+  await env.analysis.setLibraries(env.XLSX);
+  await env.analysis.setPerimeter(perimeter);
+  await env.upload();
+  const [inside, outside] = env.markers, zooms = env.zooms();
+  for (let i = 0; i < 7; i++) {
+    inside.handlers.click(); outside.handlers.click();
+    const reversed = i % 2 === 0;
+    assert(inside.options.icon.html.includes(reversed ? '#dc3b30' : '#1aaa62'));
+    assert(outside.options.icon.html.includes(reversed ? '#1aaa62' : '#dc3b30'));
+    assert(env.groups[0].children.length === 1 && env.groups[0].children[0] === (reversed ? outside : inside));
+    assert(env.groups[1].children.length === 1 && env.groups[1].children[0] === (reversed ? inside : outside));
+    assert(outside.options.title === (reversed ? 'Gebäude innerhalb' : 'Gebäude ausserhalb'));
+    assert(outside.popup.textContent.includes(reversed ? 'Innerhalb · im Export enthalten' : 'Ausserhalb · vom Export ausgeschlossen'));
+    assert(env.nodes['inside-count'].textContent === '1' && env.nodes['outside-count'].textContent === '1');
+    env.nodes['export-button'].handlers.click();
+    assert(env.exported[i].length === 2 && env.exported[i][1][1] === (reversed ? 2 : 1));
+    assert(env.exported[i][1][3] === 'synthetisch');
+  }
+  assert(env.requests() === 1 && env.zooms() === zooms && env.markers.length === 2);
+});
+
+await test('Alle Excel-Zeilen desselben Gebäudepunkts gemeinsam umschalten, ungeklärte Zeilen erhalten', async () => {
+  const env = environment({ workbookRows: [
+    ['Kunstgasse', 1, 4000, 'Innen'], ['Kunstgasse', 2, 4000, 'Aussen A'],
+    ['Kunstgasse', 2, 4000, 'Aussen B'], ['Unbekannte Testgasse', 9, 4000, 'ungeklärt'],
+  ] });
+  await env.analysis.setLibraries(env.XLSX);
+  await env.analysis.setPerimeter(perimeter);
+  await env.upload();
+  assert(env.markers.length === 2);
+  env.markers[1].handlers.click();
+  assert(env.nodes['inside-count'].textContent === '3' && env.nodes['outside-count'].textContent === '0');
+  assert(env.nodes['unresolved-count'].textContent === '1');
+  assert(env.markers[1].popup.textContent.includes('2 Excel-Zeile(n)'));
+  env.nodes['export-button'].handlers.click();
+  assert(JSON.stringify(env.exported[0].slice(1).map(row => row[3])) === JSON.stringify(['Innen', 'Aussen A', 'Aussen B']));
+  env.markers[1].handlers.click(); env.markers[0].handlers.click();
+  assert(env.nodes['inside-count'].textContent === '0' && env.nodes['outside-count'].textContent === '3');
+  env.nodes['export-button'].handlers.click();
+  assert(env.exported[1].length === 1, 'Leere Auswahl exportiert nur die Kopfzeile');
+});
+
+await test('Bufferbedienung verwirft manuelle Auswahl und klassifiziert anhand der aktuellen Erweiterung', async () => {
+  const env = environment({ useViewer: true, records: [
+    { strname: 'Kunstgasse', deinr: 1, dplz4: 4000, geo_point_2d: { lon: 7.6, lat: 47.55 } },
+    { strname: 'Kunstgasse', deinr: 2, dplz4: 4000, geo_point_2d: { lon: 7.6105, lat: 47.55 } },
+  ] });
+  await env.analysis.setLibraries(env.XLSX);
+  await env.loadPerimeter('synthetisch.geojson', JSON.stringify(perimeter));
+  await env.upload();
+  env.markers[0].handlers.click();
+  assert(env.nodes['inside-count'].textContent === '0');
+  await env.setOffset(50);
+  assert(env.nodes['inside-count'].textContent === '2' && env.nodes['outside-count'].textContent === '0');
+  env.nodes['export-button'].handlers.click(); assert(env.exported[0].length === 3);
+  env.markers[3].handlers.click();
+  await env.setOffset(0);
+  assert(env.nodes['inside-count'].textContent === '1' && env.nodes['outside-count'].textContent === '1');
+  env.nodes['export-button'].handlers.click(); assert(env.exported[1][1][1] === 1);
+  assert(env.requests() === 1);
+});
+
+await test('Perimeter- und Gebäudeimport setzen Auswahl zurück; alte Marker können sie nicht verändern', async () => {
+  const env = environment({ useViewer: true });
+  await env.analysis.setLibraries(env.XLSX);
+  await env.loadPerimeter('synthetisch.geojson', JSON.stringify(perimeter));
+  await env.upload();
+  const oldOutside = env.markers[1];
+  oldOutside.handlers.click(); assert(env.nodes['inside-count'].textContent === '2');
+  const shifted = { type: 'Polygon', coordinates: [ring.map(([lon, lat]) => [lon + .02, lat])] };
+  await env.loadPerimeter('anderer-testperimeter.geojson', JSON.stringify(shifted));
+  assert(env.nodes['inside-count'].textContent === '1');
+  env.nodes['export-button'].handlers.click(); assert(env.exported[0][1][1] === 2, 'Neuer Perimeter bestimmt die tatsächliche Auswahl');
+  oldOutside.handlers.click();
+  assert(env.nodes['inside-count'].textContent === '1', 'Entfernte Marker ignorieren');
+  env.markers[2].handlers.click(); assert(env.nodes['inside-count'].textContent === '2');
+  await env.upload();
+  assert(env.nodes['inside-count'].textContent === '1' && env.nodes['outside-count'].textContent === '1');
+  env.nodes['export-button'].handlers.click(); assert(env.exported[1][1][1] === 2);
+});
+
+await test('Neuer Seitenstart übernimmt keine manuellen Änderungen', async () => {
+  const previous = environment({ useViewer: true });
+  await previous.analysis.setLibraries(previous.XLSX);
+  await previous.loadPerimeter('synthetisch.geojson', JSON.stringify(perimeter));
+  await previous.upload();
+  previous.markers[1].handlers.click(); assert(previous.nodes['inside-count'].textContent === '2');
+  const fresh = environment({ useViewer: true });
+  await fresh.analysis.setLibraries(fresh.XLSX);
+  assert(fresh.markers.length === 0 && fresh.nodes['export-button'].disabled && fresh.nodes['perimeter-offset'].value === '0');
+  await fresh.loadPerimeter('synthetisch.geojson', JSON.stringify(perimeter));
+  await fresh.upload();
+  assert(fresh.nodes['inside-count'].textContent === '1' && fresh.nodes['outside-count'].textContent === '1');
+  fresh.nodes['export-button'].handlers.click(); assert(fresh.exported[0][1][1] === 1);
 });
 
 await test('Fehlende Treffer erklären die leere Karte und öffnen die Klärungsliste', async () => {

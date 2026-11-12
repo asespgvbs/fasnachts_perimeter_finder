@@ -4,12 +4,26 @@
    automatisch geschlossen: letzter Punkt wird mit dem ersten verbunden.
 2. **Gebäude importieren:** Excel mit **Strasse, Nummer, PLZ, Kommentar**
    auswählen. Die App gleicht die Adressen mit dem amtlichen GWR-Adressbestand ab.
-3. **Perimeter-Gebäude exportieren:** Excel mit den Zeilen innerhalb des
-   Perimeters, einschliesslich aller ursprünglichen Spalten und Kommentare.
+3. **Auswahl anpassen:** Auf ein Gebäudedreieck klicken, um zwischen innerhalb
+   und ausserhalb zu wechseln. Beliebig oft und für jedes gefundene Gebäude möglich.
+4. **Perimeter-Gebäude exportieren:** Excel mit den aktuell als innerhalb
+   markierten Zeilen, einschliesslich aller ursprünglichen Spalten und Kommentare.
 
 Gefundene Gebäude erscheinen als **Dreiecke**: grün innerhalb, rot ausserhalb.
 Der Kartenausschnitt wird auf die Treffer gesetzt. Nicht zuordenbare Adressen
 stehen mit dem Grund in der Klärungsliste; sie bekommen keine erfundene Position.
+
+Ein Klick auf ein Dreieck wechselt dessen Status, Farbe, Gebäudeebene und
+Exportauswahl; die Zähler und das Popup werden sofort aktualisiert. So lassen
+sich ausserhalb liegende Gebäude einschliessen und innerhalb liegende ausschliessen.
+Alle Excel-Zeilen desselben Adresspunkts wechseln gemeinsam. Ein weiterer Klick
+wechselt den Status zurück, ohne den Kartenausschnitt zu verändern.
+
+Die manuelle Auswahl gilt nur bis zur Bedienung des Bufferreglers, zum
+Seitenreload oder zum erfolgreichen Laden eines neuen Perimeters bzw. einer
+Gebäudeliste. Dann wird der Status wieder anhand der tatsächlichen Lage im
+Perimeter einschliesslich der aktuellen Metererweiterung berechnet. Beim
+Seitenreload müssen Perimeter und Gebäude erneut geladen werden.
 
 ## Start
 
@@ -58,7 +72,8 @@ her. Bei Auswahl eines anderen Perimeters bleibt der eingestellte Meterwert akti
   Hausnummerzusätze bleiben erhalten; PLZ ist vierstellig.
   Maximal 50’000 Datenzeilen und 256 Spalten. Leerzeilen werden ignoriert.
 - Zähler und Export zählen Excel-Zeilen einschliesslich Duplikaten.
-  Derselbe Adresspunkt wird nur einmal markiert. Klick zeigt Adresse und Kommentar.
+  Derselbe Adresspunkt wird nur einmal markiert. Klick wechselt den Status und
+  zeigt Adresse, Kommentar und aktuelle Exportauswahl.
 - Beim Perimeterwechsel werden bereits importierte Gebäude neu ausgewertet.
   Ein fehlerhafter Dateiimport behält den bisherigen Stand.
 - Der Export enthält nur die Innen-Zeilen in ursprünglicher Reihenfolge,
@@ -106,7 +121,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 python tests/run_loader_checks.py
 ```
 
-**68 JavaScript-Tests und acht Python-Tests bestehen.** Der optionale
+**73 JavaScript-Tests und acht Python-Tests bestehen.** Der optionale
 JavaScript-Läufer verwendet unter Windows die bereits vorhandene `Chakra.dll`.
 Er bündelt den tatsächlichen Anwendungsquellcode, ohne dessen Logik zu ersetzen.
 Nur Browser-, Datei-, Modul- und HTTP-Zugriffe sowie Timer sind synthetische Adapter;
@@ -118,6 +133,9 @@ GeoJSON-Polygone, Innen-/Aussenpunkte, Randpunkte, Löcher und konkave Grenzen.
 Zusätzlich geprüft: 0/250-m-Grenzen, runde Ecken, schrumpfende Löcher,
 zusammenwachsende Teilflächen, Rückkehr zur Originalgrenze und Regleränderungen
 einschliesslich Gebäudezuordnung und Export ohne erneuten Adressdownload.
+Ebenfalls geprüft: wiederholtes Umschalten aller Marker, gemeinsame Auswahl
+mehrfach vorhandener Excel-Zeilen, Farben, Gebäudeebenen, Popup und Export sowie
+das Zurücksetzen bei Bufferbedienung, Perimeter-/Gebäudeimport und neuem Seitenstart.
 Die gleichen Tests stehen unter **http://127.0.0.1:8000/tests/index.html** bereit.
 
 Es wurden keine echten Datendateien, Geheimnisse oder Live-Dienste abgefragt,
@@ -128,7 +146,7 @@ Live-Verfügbarkeit und Feldstruktur des GWR-Dienstes sind damit nicht bestätig
 
 ```powershell
 cd C:\dev\repos\fasnacht_perimeter_check
-git add -- README.md index.html styles.css src/app.js src/analysis.js src/analysis-core.js tests/analysis.test.js tests/building-flow.test.js
+git add -- README.md index.html src/analysis.js tests/building-flow.test.js
 git diff --cached
-git commit -m "Add 0-250 metre outward perimeter adjustment"
+git commit -m "Allow toggling building inclusion by clicking map markers"
 ```
